@@ -1,62 +1,88 @@
 # Redis Stack — Semantic Cache Patterns
+> Source: redis.io official docs (Feb 2026)
 
-## Setup (Docker Compose)
+## Setup
 Use `redis/redis-stack:latest` for RediSearch + RedisJSON support.
 
-## Vector Index Creation
+## Client: node-redis (recommended over ioredis)
+- `redis` package v4.6+ or v5.x — first-class TypeScript support for `.ft`, `.json` commands
+- Fully compatible with Bun
+- `ioredis` lacks built-in Redis Stack command types
+
 ```typescript
-// Create index for semantic cache
-await redis.ft.create('llm_cache_idx', {
-  '$.vector': {
+import { createClient, SchemaFieldTypes, VectorAlgorithms } from 'redis';
+
+const client = createClient({
+  url: process.env.REDIS_URL || 'redis://localhost:6379'
+});
+client.on('error', (err) => console.error('Redis Client Error', err));
+await client.connect();
+```
+
+## Vector Index Creation (`FT.CREATE`)
+- **Algorithm:** HNSW (preferred over FLAT for speed/recall)
+- **Data Type:** JSON (`ON JSON`) with nested vector fields
+- **Distance:** COSINE for text similarity
+- **Dialect 2+** is mandatory for vector search syntax
+
+```typescript
+await client.ft.create('idx:semantic-cache', {
+  '$.embedding': {
     type: SchemaFieldTypes.VECTOR,
     AS: 'vector',
-    ALGORITHM: 'HNSW',
+    ALGORITHM: VectorAlgorithms.HNSW,
     TYPE: 'FLOAT32',
-    DIM: 384, // Match your embedding model dimension
-    DISTANCE_METRIC: 'COSINE',
+    DIM: 1536, // Must match embedding model
+    DISTANCE_METRIC: 'COSINE'
   },
-  '$.model': { type: SchemaFieldTypes.TAG, AS: 'model' },
-  '$.created': { type: SchemaFieldTypes.NUMERIC, AS: 'created' },
-}, { ON: 'JSON', PREFIX: 'cache:' });
+  '$.response': { type: SchemaFieldTypes.TEXT, AS: 'response' }
+}, {
+  ON: 'JSON',
+  PREFIX: 'cache:'
+});
 ```
 
 ## Cache Store
 ```typescript
-async function storeInCache(query: string, model: string, response: string) {
-  const vector = await generateEmbedding(query);
-  const key = `cache:${crypto.randomUUID()}`;
-  
-  await redis.json.set(key, '$', {
+async function cacheResponse(query: string, response: string) {
+  const vector = await getEmbedding(query);
+  const key = `cache:${Date.now()}`;
+
+  await client.json.set(key, '$', {
     query,
-    model,
     response,
-    vector: Array.from(vector),
-    created: Date.now(),
+    embedding: vector
   });
-  
+
   // TTL: 24 hours
-  await redis.expire(key, 86400);
+  await client.expire(key, 86400);
 }
 ```
 
 ## Cache Lookup (KNN Search)
 ```typescript
-async function searchCache(query: string, model: string, threshold = 0.95) {
-  const vector = await generateEmbedding(query);
-  const vectorBuffer = Buffer.from(new Float32Array(vector).buffer);
-  
-  const results = await redis.ft.search('llm_cache_idx', 
-    `(@model:{${model}})=>[KNN 1 @vector $blob AS score]`, {
-    PARAMS: { blob: vectorBuffer },
-    SORTBY: 'score',
-    LIMIT: { from: 0, size: 1 },
-    RETURN: ['response', 'score'],
-    DIALECT: 2,
-  });
+// Convert number[] to Buffer for Redis
+function float32Buffer(arr: number[]): Buffer {
+  return Buffer.from(new Float32Array(arr).buffer);
+}
 
-  if (results.total > 0) {
-    const score = 1 - parseFloat(results.documents[0].value.score as string);
-    if (score >= threshold) {
+async function semanticSearch(text: string) {
+  const vector = await getEmbedding(text);
+
+  const results = await client.ft.search(
+    'idx:semantic-cache',
+    `*=>[KNN 1 @vector $BLOB AS score]`,
+    {
+      PARAMS: { BLOB: float32Buffer(vector) },
+      RETURN: ['score', 'response'],
+      DIALECT: 2
+    }
+  );
+
+  if (results.documents.length > 0) {
+    const score = Number(results.documents[0].value.score);
+    // Cosine DISTANCE: lower = more similar (0 = identical)
+    if (score < 0.15) { // ~0.85 similarity
       return { hit: true, response: results.documents[0].value.response, score };
     }
   }
@@ -64,20 +90,22 @@ async function searchCache(query: string, model: string, threshold = 0.95) {
 }
 ```
 
+## ⚠️ Important: Cosine Distance vs Similarity
+- Redis returns **cosine distance** (0 = identical, 1 = opposite)
+- NOT cosine similarity (1 = identical, 0 = orthogonal)
+- Threshold of `< 0.15` distance ≈ `> 0.85` similarity
+- For strict caching: use `< 0.05` distance (≈ 0.95 similarity)
+
 ## Embedding Options
-| Model | Dimensions | Speed | Cost |
-|-------|-----------|-------|------|
-| `text-embedding-3-small` (OpenAI) | 1536 | Fast | $0.02/1M tokens |
-| `all-MiniLM-L6-v2` (local ONNX) | 384 | Instant | Free |
+| Model | Dimensions | Latency | Cost |
+|-------|-----------|---------|------|
+| OpenAI `text-embedding-3-small` | 1536 | ~100-200ms (network) | $0.02/1M tokens |
+| `@xenova/transformers` `all-MiniLM-L6-v2` | 384 | <50ms (local) | Free |
 
-**Recommendation:** Start with OpenAI embeddings for simplicity. Switch to local ONNX later for zero-cost.
-
-## Similarity Thresholds
-- **≥ 0.95**: Return cached response (functionally identical query)
-- **0.85 - 0.95**: Log as "near miss" but don't return
-- **< 0.85**: Full cache miss
+**Recommendation:** Start with OpenAI for simplicity. Switch to local `@xenova/transformers` for zero-cost, zero-latency.
 
 ## Cache Invalidation
-- **TTL**: 24-48h default (LLM knowledge rots)
-- **Model-scoped**: Cache per model, don't mix responses across models
-- **Header override**: `X-Skip-Cache: true` to bypass cache
+- **TTL**: 24-48h (LLM knowledge rots)
+- **Model-scoped**: Don't mix responses across models
+- **Header override**: `X-Skip-Cache: true` to bypass
+- **LRU eviction**: Set `maxmemory-policy allkeys-lru` in redis.conf
