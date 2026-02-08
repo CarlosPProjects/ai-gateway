@@ -1,0 +1,25 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "theme": "dark",
+  "provider": {
+    "anthropic": {
+      "apiKey": "env:ANTHROPIC_API_KEY"
+    }
+  },
+  "model": {
+    "default": "anthropic/claude-opus-4-6",
+    "fallback": "opencode/kimi-k2.5-free"
+  },
+  "agents": {
+    "coder": {
+      "description": "Senior TypeScript/Bun/Hono engineer building an AI Gateway",
+      "instructions": "Read AGENTS.md first. Follow all conventions. Use Bun, Hono, Vercel AI SDK. Check docs/research/ for architecture patterns. Use Biome for formatting. Write tests with bun test."
+    }
+  },
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"]
+    }
+  }
+}
