@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { cacheConfig } from "@/config/cache.ts";
+import { isRedisHealthy } from "@/services/cache/redis.ts";
 
 const health = new Hono();
 
@@ -10,14 +12,22 @@ health.get("/health", (c) => {
 	});
 });
 
-health.get("/ready", (c) => {
-	// TODO: Add Redis connectivity check in Phase 2
-	return c.json({
-		status: "ready",
-		checks: {
-			server: "ok",
+health.get("/ready", async (c) => {
+	const redisOk = cacheConfig.enabled ? await isRedisHealthy() : true;
+
+	const status = redisOk ? "ready" : "degraded";
+	const statusCode = redisOk ? 200 : 503;
+
+	return c.json(
+		{
+			status,
+			checks: {
+				server: "ok",
+				redis: redisOk ? "ok" : "unavailable",
+			},
 		},
-	});
+		statusCode,
+	);
 });
 
 export { health };
