@@ -1,12 +1,17 @@
-# Bun Runtime — Best Practices & API Reference
+---
+name: bun-runtime
+description: Bun runtime best practices including Bun.serve, hot reload, environment variables, testing with bun:test, mocks, and TypeScript configuration. Use when setting up the project or writing tests.
+---
+
+## Bun Runtime — Best Practices
 > Source: bun.sh/docs official docs (Feb 2026)
 
-## Overview
+### Overview
 - All-in-one: runtime, package manager, test runner, bundler
 - 4x faster startup than Node.js, built on Zig + JavaScriptCore
 - Native TypeScript support (no build step needed)
 
-## HTTP Server (Bun.serve)
+### HTTP Server (Bun.serve)
 ```typescript
 const server = Bun.serve({
   port: 3000,
@@ -24,43 +29,29 @@ const server = Bun.serve({
 console.log(`Server running at ${server.url}`)
 ```
 
-## Hot Reload vs Watch
+### Hot Reload vs Watch
 ```bash
-# --watch: Hard restart process on file changes (like nodemon)
+# --watch: Hard restart process (like nodemon)
 bun --watch server.ts
 
 # --hot: Soft reload, preserves state, HTTP servers stay alive
 bun --hot server.ts
 ```
-
-```typescript
-// With --hot, globalThis persists across reloads
-globalThis.count ??= 0
-globalThis.count++
-```
-
 **Key difference:** `--watch` restarts entire process, `--hot` reloads code without restarting.
 
-## Environment Variables
+### Environment Variables
 Bun auto-loads `.env` files (no `dotenv` needed):
-- `.env` → `.env.{NODE_ENV}` → `.env.local` (in order of precedence)
+- `.env` → `.env.{NODE_ENV}` → `.env.local` (in order)
 
 ```typescript
 process.env.API_KEY       // Standard
-Bun.env.API_KEY           // Same as process.env
-import.meta.env.API_KEY   // Same as process.env
-```
-
-Auto-expansion in `.env`:
-```bash
-DB_USER=postgres
-DB_PASSWORD=secret
-DB_URL=postgres://$DB_USER:$DB_PASSWORD@localhost/mydb
+Bun.env.API_KEY           // Same
+import.meta.env.API_KEY   // Same
 ```
 
 Disable: `bun --no-env-file server.ts`
 
-## Test Runner (bun:test)
+### Test Runner (bun:test)
 ```typescript
 import { test, expect, describe, beforeAll, afterEach, mock } from 'bun:test'
 
@@ -92,16 +83,12 @@ expect(randomFn).toHaveBeenCalledTimes(1)
 ```bash
 bun test                              # All tests
 bun test --watch                      # Watch mode
-bun test --test-name-pattern "add"    # Filter by name
+bun test --test-name-pattern "add"    # Filter
 bun test ./test/api.test.ts           # Specific file
 bun test --timeout 10000              # Custom timeout
 ```
 
-### Lifecycle Hooks
-- `beforeAll()` / `afterAll()` — once per describe block
-- `beforeEach()` / `afterEach()` — per test
-
-## Package.json Scripts
+### Package.json Scripts
 ```json
 {
   "scripts": {
@@ -115,7 +102,7 @@ bun test --timeout 10000              # Custom timeout
 }
 ```
 
-## tsconfig.json (Recommended)
+### tsconfig.json (Recommended)
 ```json
 {
   "compilerOptions": {
@@ -137,14 +124,14 @@ bun test --timeout 10000              # Custom timeout
 }
 ```
 
-## ⚠️ Gotchas
-1. **--hot caveats** — state persists via `globalThis`, but module cache resets
-2. **.env auto-loads** — `.env`, `.env.{NODE_ENV}`, `.env.local` (no dotenv needed)
-3. **TypeScript built-in** — no tsconfig required to run, but recommended for strict mode
-4. **Test file patterns** — looks for `*.test.{ts,tsx,js,jsx}` and `*.spec.*`
-5. **bun run vs bun** — `bun run script` for package.json scripts, `bun file.ts` for direct exec
+### ⚠️ Gotchas
+1. **--hot** — state persists via `globalThis`, module cache resets
+2. **.env auto-loads** — no dotenv package needed
+3. **TypeScript built-in** — no tsconfig required to run
+4. **Test patterns** — `*.test.{ts,tsx,js,jsx}` and `*.spec.*`
+5. **bun run vs bun** — `bun run script` for scripts, `bun file.ts` for direct exec
 
-## Official Docs
+### Official Docs
 - Main: https://bun.sh/docs
 - HTTP Server: https://bun.sh/docs/runtime/http/server
 - Watch Mode: https://bun.sh/docs/runtime/watch-mode

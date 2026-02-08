@@ -1,12 +1,17 @@
-# Vercel AI SDK — Multi-Provider Patterns
+---
+name: vercel-ai-sdk
+description: Vercel AI SDK patterns for multi-provider LLM abstraction including streamText, generateText, provider setup, error handling, token tracking, and OpenTelemetry. Use when implementing LLM provider adapters or streaming responses.
+---
+
+## Vercel AI SDK — Multi-Provider Patterns
 > Source: ai-sdk.dev official docs (Feb 2026)
 
-## Architecture
+### Architecture
 - **AI SDK Core:** Unified API for text generation, tools, agents
 - **AI SDK UI:** Framework hooks for chat/generative UI
 - **Provider packages:** `@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/google`
 
-## Provider Setup
+### Provider Setup
 ```typescript
 // Provider/model string format
 import { generateText } from 'ai'
@@ -25,7 +30,7 @@ const gptModel = openai('gpt-5')
 const geminiModel = google('gemini-2.0-flash-exp')
 ```
 
-## Text Generation (Non-Streaming)
+### Text Generation (Non-Streaming)
 ```typescript
 import { generateText } from 'ai'
 
@@ -43,7 +48,7 @@ result.usage         // { promptTokens, completionTokens, totalTokens }
 result.response      // { headers, body, messages }
 ```
 
-## Streaming Text
+### Streaming Text
 ```typescript
 import { streamText } from 'ai'
 
@@ -82,7 +87,7 @@ await result.usage
 await result.finishReason
 ```
 
-## Error Handling
+### Error Handling
 ```typescript
 import { APICallError } from 'ai'
 
@@ -107,7 +112,7 @@ const result = streamText({
 })
 ```
 
-## Stream Abort
+### Stream Abort
 ```typescript
 const result = streamText({
   model,
@@ -121,7 +126,7 @@ const result = streamText({
 })
 ```
 
-## Model Factory Pattern (for our Gateway)
+### Model Factory Pattern (for Gateway)
 ```typescript
 import { createOpenAI } from '@ai-sdk/openai'
 import { createAnthropic } from '@ai-sdk/anthropic'
@@ -141,7 +146,7 @@ export function getModel(providerId: string, modelId: string): LanguageModel {
 }
 ```
 
-## OpenTelemetry
+### OpenTelemetry
 ```typescript
 const result = await generateText({
   model,
@@ -153,14 +158,14 @@ const result = await generateText({
 })
 ```
 
-## ⚠️ Gotchas
-1. **Errors don't throw in streams** — use `onError` callback, not try/catch
-2. **Backpressure** — `streamText` uses backpressure, MUST consume the stream
+### ⚠️ Gotchas
+1. **Errors don't throw in streams** — use `onError` callback
+2. **Backpressure** — MUST consume the stream
 3. **onFinish NOT called on abort** — use `onAbort` separately
-4. **streamText starts immediately** — no await needed to begin streaming
-5. **Provider string format** — `'provider/model'` (e.g. `'anthropic/claude-sonnet-4.5'`)
+4. **streamText starts immediately** — no await needed to begin
+5. **Provider string format** — `'provider/model'`
 
-## Official Docs
+### Official Docs
 - Main: https://ai-sdk.dev/docs
 - Generating Text: https://ai-sdk.dev/docs/ai-sdk-core/generating-text
 - Streaming: https://ai-sdk.dev/docs/ai-sdk-core/streaming-text

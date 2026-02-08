@@ -10,7 +10,8 @@
   "agent": {
     "coder": {
       "description": "Senior TypeScript/Bun/Hono engineer building an AI Gateway",
-      "prompt": "Read AGENTS.md first. Follow all conventions. Use Bun, Hono, Vercel AI SDK. Check docs/research/ for architecture patterns and .agents/ for technology-specific best practices. Use Biome for formatting. Write tests with bun test."
+      "mode": "primary",
+      "prompt": "Read AGENTS.md first. Follow all conventions. Use Bun, Hono, Vercel AI SDK. Check docs/research/ for architecture patterns. Load skills on-demand when working with specific technologies."
     }
   },
   "mcp": {
@@ -19,6 +20,5 @@
       "command": ["npx", "-y", "@upstash/context7-mcp@latest"],
       "enabled": true
     }
-  },
-  "instructions": [".agents/*.md"]
+  }
 }

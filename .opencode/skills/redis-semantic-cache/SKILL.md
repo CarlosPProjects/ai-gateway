@@ -1,11 +1,13 @@
-# Redis Stack — Semantic Cache Patterns
+---
+name: redis-semantic-cache
+description: Redis Stack vector search and semantic caching patterns including HNSW indexes, KNN queries, node-redis client setup, embedding models, and cache invalidation. Use when implementing the semantic cache layer.
+---
+
+## Redis Stack — Semantic Cache Patterns
 > Source: redis.io official docs (Feb 2026)
 
-## Setup
-Use `redis/redis-stack:latest` for RediSearch + RedisJSON support.
-
-## Client: node-redis (recommended over ioredis)
-- `redis` package v4.6+ or v5.x — first-class TypeScript support for `.ft`, `.json` commands
+### Client: node-redis (recommended over ioredis)
+- `redis` package v4.6+/v5.x — first-class TypeScript support for `.ft`, `.json` commands
 - Fully compatible with Bun
 - `ioredis` lacks built-in Redis Stack command types
 
@@ -19,30 +21,35 @@ client.on('error', (err) => console.error('Redis Client Error', err));
 await client.connect();
 ```
 
-## Vector Index Creation (`FT.CREATE`)
+### Vector Index Creation (`FT.CREATE`)
 - **Algorithm:** HNSW (preferred over FLAT for speed/recall)
 - **Data Type:** JSON (`ON JSON`) with nested vector fields
 - **Distance:** COSINE for text similarity
 - **Dialect 2+** is mandatory for vector search syntax
 
 ```typescript
-await client.ft.create('idx:semantic-cache', {
-  '$.embedding': {
-    type: SchemaFieldTypes.VECTOR,
-    AS: 'vector',
-    ALGORITHM: VectorAlgorithms.HNSW,
-    TYPE: 'FLOAT32',
-    DIM: 1536, // Must match embedding model
-    DISTANCE_METRIC: 'COSINE'
-  },
-  '$.response': { type: SchemaFieldTypes.TEXT, AS: 'response' }
-}, {
-  ON: 'JSON',
-  PREFIX: 'cache:'
-});
+try {
+  await client.ft.create('idx:semantic-cache', {
+    '$.embedding': {
+      type: SchemaFieldTypes.VECTOR,
+      AS: 'vector',
+      ALGORITHM: VectorAlgorithms.HNSW,
+      TYPE: 'FLOAT32',
+      DIM: 1536, // Must match embedding model
+      DISTANCE_METRIC: 'COSINE'
+    },
+    '$.response': { type: SchemaFieldTypes.TEXT, AS: 'response' }
+  }, {
+    ON: 'JSON',
+    PREFIX: 'cache:'
+  });
+} catch (e: any) {
+  if (e.message === 'Index already exists') { /* ignore */ }
+  else throw e;
+}
 ```
 
-## Cache Store
+### Cache Store
 ```typescript
 async function cacheResponse(query: string, response: string) {
   const vector = await getEmbedding(query);
@@ -59,9 +66,8 @@ async function cacheResponse(query: string, response: string) {
 }
 ```
 
-## Cache Lookup (KNN Search)
+### Cache Lookup (KNN Search)
 ```typescript
-// Convert number[] to Buffer for Redis
 function float32Buffer(arr: number[]): Buffer {
   return Buffer.from(new Float32Array(arr).buffer);
 }
@@ -90,13 +96,13 @@ async function semanticSearch(text: string) {
 }
 ```
 
-## ⚠️ Important: Cosine Distance vs Similarity
+### ⚠️ Cosine Distance vs Similarity
 - Redis returns **cosine distance** (0 = identical, 1 = opposite)
 - NOT cosine similarity (1 = identical, 0 = orthogonal)
-- Threshold of `< 0.15` distance ≈ `> 0.85` similarity
-- For strict caching: use `< 0.05` distance (≈ 0.95 similarity)
+- `< 0.15` distance ≈ `> 0.85` similarity
+- For strict caching: `< 0.05` distance (≈ 0.95 similarity)
 
-## Embedding Options
+### Embedding Options
 | Model | Dimensions | Latency | Cost |
 |-------|-----------|---------|------|
 | OpenAI `text-embedding-3-small` | 1536 | ~100-200ms (network) | $0.02/1M tokens |
@@ -104,7 +110,7 @@ async function semanticSearch(text: string) {
 
 **Recommendation:** Start with OpenAI for simplicity. Switch to local `@xenova/transformers` for zero-cost, zero-latency.
 
-## Cache Invalidation
+### Cache Invalidation
 - **TTL**: 24-48h (LLM knowledge rots)
 - **Model-scoped**: Don't mix responses across models
 - **Header override**: `X-Skip-Cache: true` to bypass
