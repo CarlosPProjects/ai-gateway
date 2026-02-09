@@ -1,13 +1,20 @@
 import { Hono } from "hono";
+import { cacheConfig } from "@/config/cache.ts";
+import { semanticCacheMiddleware } from "@/middleware/cache.ts";
 import { errorHandler } from "@/middleware/error-handler.ts";
 import { logger, requestLogger } from "@/middleware/logging.ts";
 import { chat } from "@/routes/chat.ts";
 import { health } from "@/routes/health.ts";
+import { ensureVectorIndex } from "@/services/cache/index-setup.ts";
+import { connectRedis } from "@/services/cache/redis.ts";
 
 const app = new Hono();
 
 // Global middleware
 app.use(requestLogger());
+
+// Semantic cache middleware (before chat route)
+app.use("/v1/*", semanticCacheMiddleware());
 
 // Global error handler
 app.onError(errorHandler);
@@ -45,5 +52,18 @@ export default {
 	port,
 	fetch: app.fetch,
 };
+
+// Initialize Redis and vector index (non-blocking — gateway starts even if Redis is down)
+if (cacheConfig.enabled) {
+	connectRedis()
+		.then(() => ensureVectorIndex())
+		.then(() => logger.info("Semantic cache initialized"))
+		.catch((err) => {
+			logger.warn(
+				{ err: err instanceof Error ? err.message : String(err) },
+				"Semantic cache unavailable — running without cache",
+			);
+		});
+}
 
 logger.info({ port }, `AI Gateway running on http://localhost:${port}`);
