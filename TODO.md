@@ -24,13 +24,13 @@
 - [x] Add `X-Skip-Cache` header support
 - [x] Wire cache as Hono middleware
 
-## Phase 3: Smart Routing
-- [ ] Define routing rules (cost, latency, model capability)
-- [ ] Implement model selector based on request metadata
-- [ ] Add fallback logic (retry with different provider on 5xx/429)
-- [ ] Add rate limiting per provider (token bucket)
-- [ ] Implement request timeout handling
-- [ ] Track provider latency for least-latency routing
+## Phase 3: Smart Routing ✅
+- [x] Define routing rules (cost, latency, model capability)
+- [x] Implement model selector based on request metadata
+- [x] Add fallback logic (retry with different provider on 5xx/429)
+- [x] Add rate limiting per provider (token bucket)
+- [x] Implement request timeout handling
+- [x] Track provider latency for least-latency routing
 
 ## Phase 4: Observability
 - [ ] Structured logging (request/response) — ✅ Partially done in Phase 1
