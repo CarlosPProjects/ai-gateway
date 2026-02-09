@@ -30,13 +30,17 @@ const DEFAULT_CAPABILITIES: Record<string, ModelCapability[]> = {
  * and returns a ranked list using multi-criteria scoring.
  *
  * Scoring formula (balanced strategy):
- *   score = (1/normalizedCost) * 0.3 + (1/normalizedLatency) * 0.4 + capabilityMatch * 0.3
+ *   score = (1 - normalizedCost) * 0.3 + (1 - normalizedLatency) * 0.4 + capabilityMatch * 0.3
  */
 export class RoutingRulesEngine {
 	private readonly rules: RoutingRule[];
 	private readonly pricing: ModelPricing[];
 
 	constructor(rules: RoutingRule[], pricing: ModelPricing[]) {
+		if (pricing.length === 0) {
+			throw new Error("RoutingRulesEngine requires non-empty pricing data");
+		}
+
 		// Sort rules by priority descending (higher priority first)
 		this.rules = [...rules].sort((a, b) => b.priority - a.priority);
 		this.pricing = pricing;
@@ -220,15 +224,15 @@ export class RoutingRulesEngine {
 			const cost = costs[i] ?? 0;
 			const latency = latencies[i] ?? 500;
 
-			// Normalize to [0, 1] range (lower is better, so invert)
-			const normalizedCost = maxCost === minCost ? 1 : (cost - minCost) / (maxCost - minCost);
+			// Normalize to [0, 1] range where 0 = best (cheapest/fastest)
+			// When all candidates are equal (min===max), normalize to 0 (best score)
+			const normalizedCost = maxCost === minCost ? 0 : (cost - minCost) / (maxCost - minCost);
 			const normalizedLatency =
-				maxLatency === minLatency ? 1 : (latency - minLatency) / (maxLatency - minLatency);
+				maxLatency === minLatency ? 0 : (latency - minLatency) / (maxLatency - minLatency);
 
-			// Invert: lower cost/latency should yield higher score component
-			// Add small epsilon to avoid division by zero
-			const costScore = 1 / (normalizedCost + 0.01);
-			const latencyScore = 1 / (normalizedLatency + 0.01);
+			// Linear inversion: lower cost/latency → higher score
+			const costScore = 1 - normalizedCost;
+			const latencyScore = 1 - normalizedLatency;
 
 			// Capability match: fraction of requested capabilities met
 			const capabilityScore = this.computeCapabilityScore(
@@ -296,7 +300,7 @@ export class RoutingRulesEngine {
 
 			// Boost preferred providers proportional to rule priority
 			if (rule.preferredProviders?.includes(candidate.provider.id)) {
-				boost += rule.priority * 0.01;
+				boost += rule.priority * 0.05;
 			}
 		}
 

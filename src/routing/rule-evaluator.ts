@@ -19,7 +19,8 @@ export function evaluateCostRule(
 	}
 
 	// Check if any model from this provider meets the cost threshold
-	// Use average of input+output as the representative cost
+	// TODO: Use weighted average based on RequestMetadata I/O token ratio
+	// instead of simple average when RequestMetadata is passed through
 	return providerPricing.some((p) => {
 		const avgCostPer1k = (p.inputPer1k + p.outputPer1k) / 2;
 		return avgCostPer1k <= condition.maxCostPer1kTokens;
@@ -35,8 +36,8 @@ export function evaluateLatencyRule(
 	provider: ProviderState,
 ): boolean {
 	if (!provider.latency) {
-		// No latency data — assume it may be acceptable (new provider)
-		return true;
+		// No latency data — conservative: reject unknown providers for latency rules
+		return false;
 	}
 
 	// Use p95 as the latency measure for reliability
