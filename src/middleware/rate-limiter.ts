@@ -1,4 +1,5 @@
 import type { MiddlewareHandler } from "hono";
+import { env } from "@/config/env.ts";
 import type { ProviderName } from "@/config/providers.ts";
 import { detectProvider } from "@/services/providers/index.ts";
 import type { GatewayError } from "@/types/index.ts";
@@ -7,40 +8,24 @@ import { TokenBucket } from "@/utils/token-bucket.ts";
 import { logger } from "./logging.ts";
 
 // ---------------------------------------------------------------------------
-// Configuration — read from environment variables
+// Configuration — read from validated environment
 // ---------------------------------------------------------------------------
 
-const DEFAULT_MAX_TOKENS = 60; // requests
-const DEFAULT_REFILL_RATE = 1; // token per second (≈60 rpm)
-
-function parseEnvInt(key: string, fallback: number): number {
-	const raw = process.env[key];
-	if (raw === undefined) return fallback;
-	const parsed = Number.parseInt(raw, 10);
-	return Number.isNaN(parsed) ? fallback : parsed;
-}
-
-function parseEnvFloat(key: string, fallback: number): number {
-	const raw = process.env[key];
-	if (raw === undefined) return fallback;
-	const parsed = Number.parseFloat(raw);
-	return Number.isNaN(parsed) ? fallback : parsed;
-}
-
-/** Build rate limit config from environment variables */
+/** Build rate limit config from validated environment variables */
 function loadRateLimitConfig(): RateLimitConfig {
-	const enabled = process.env.RATE_LIMIT_ENABLED !== "false"; // enabled by default
-
-	const globalMax = parseEnvInt("RATE_LIMIT_MAX_TOKENS", DEFAULT_MAX_TOKENS);
-	const globalRefill = parseEnvFloat("RATE_LIMIT_REFILL_RATE", DEFAULT_REFILL_RATE);
-
-	const providerConfig = (name: ProviderName): ProviderRateLimitConfig => ({
-		maxTokens: parseEnvInt(`RATE_LIMIT_${name.toUpperCase()}_MAX_TOKENS`, globalMax),
-		refillRate: parseEnvFloat(`RATE_LIMIT_${name.toUpperCase()}_REFILL_RATE`, globalRefill),
-	});
+	const providerConfig = (name: ProviderName): ProviderRateLimitConfig => {
+		const upperName = name.toUpperCase() as "OPENAI" | "ANTHROPIC" | "GOOGLE";
+		return {
+			maxTokens:
+				env[`RATE_LIMIT_${upperName}_MAX_TOKENS` as keyof typeof env] ?? env.RATE_LIMIT_MAX_TOKENS,
+			refillRate:
+				env[`RATE_LIMIT_${upperName}_REFILL_RATE` as keyof typeof env] ??
+				env.RATE_LIMIT_REFILL_RATE,
+		} as ProviderRateLimitConfig;
+	};
 
 	return {
-		enabled,
+		enabled: env.RATE_LIMIT_ENABLED,
 		providers: {
 			openai: providerConfig("openai"),
 			anthropic: providerConfig("anthropic"),

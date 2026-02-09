@@ -1,44 +1,18 @@
 import type { MiddlewareHandler } from "hono";
+import { env } from "@/config/env.ts";
 import type { ProviderName } from "@/config/providers.ts";
 import { logger } from "@/middleware/logging.ts";
 import { detectProvider } from "@/services/providers/index.ts";
 import type { ProviderTimeoutMap, TimeoutConfig } from "@/types/timeout.ts";
 import { TimeoutError } from "@/types/timeout.ts";
 
-/** Environment variable names for per-provider timeout overrides */
-const PROVIDER_TIMEOUT_ENV: Record<ProviderName, string> = {
-	openai: "TIMEOUT_OPENAI_MS",
-	anthropic: "TIMEOUT_ANTHROPIC_MS",
-	google: "TIMEOUT_GOOGLE_MS",
-};
-
-/** Default per-provider timeouts (ms) — Anthropic is slower by default */
-const PROVIDER_TIMEOUT_DEFAULTS: Record<ProviderName, number> = {
-	openai: 30_000,
-	anthropic: 60_000,
-	google: 30_000,
-};
-
-/** Build per-provider timeout map from environment variables with sensible defaults */
+/** Build per-provider timeout map from validated environment */
 function buildPerProviderTimeouts(): ProviderTimeoutMap {
-	const map: ProviderTimeoutMap = {};
-
-	for (const [provider, envVar] of Object.entries(PROVIDER_TIMEOUT_ENV)) {
-		const envValue = process.env[envVar];
-		if (envValue) {
-			const parsed = Number.parseInt(envValue, 10);
-			if (!Number.isNaN(parsed) && parsed > 0) {
-				map[provider as ProviderName] = parsed;
-			} else {
-				logger.warn({ envVar, value: envValue }, `Invalid ${envVar} value — using default`);
-				map[provider as ProviderName] = PROVIDER_TIMEOUT_DEFAULTS[provider as ProviderName];
-			}
-		} else {
-			map[provider as ProviderName] = PROVIDER_TIMEOUT_DEFAULTS[provider as ProviderName];
-		}
-	}
-
-	return map;
+	return {
+		openai: env.TIMEOUT_OPENAI_MS,
+		anthropic: env.TIMEOUT_ANTHROPIC_MS,
+		google: env.TIMEOUT_GOOGLE_MS,
+	};
 }
 
 /**

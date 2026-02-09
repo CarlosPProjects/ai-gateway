@@ -38,6 +38,34 @@ const envSchema = z.object({
 	// ── Embedding Model ────────────────────────────────────────
 	EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
 	EMBEDDING_DIMENSIONS: z.coerce.number().positive().default(1536),
+
+	// ── Routing ────────────────────────────────────────────────
+	ROUTING_STRATEGY: z.enum(["cost", "latency", "balanced", "capability"]).default("balanced"),
+	ROUTING_TIMEOUT_MS: z.coerce.number().positive().default(30_000),
+	ROUTING_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
+	ROUTING_RETRY_BACKOFF_MS: z.coerce.number().positive().default(500),
+	ROUTING_LATENCY_ALPHA: z.coerce.number().min(0).max(1).default(0.3),
+	ROUTING_LATENCY_WINDOW: z.coerce.number().int().positive().default(100),
+
+	// ── Rate Limiting (token bucket) ───────────────────────────
+	RATE_LIMIT_ENABLED: z
+		.string()
+		.default("true")
+		.transform((v) => v !== "false"),
+	RATE_LIMIT_MAX_TOKENS: z.coerce.number().positive().default(60),
+	RATE_LIMIT_REFILL_RATE: z.coerce.number().positive().default(1),
+	/** Per-provider overrides (optional) */
+	RATE_LIMIT_OPENAI_MAX_TOKENS: z.coerce.number().positive().optional(),
+	RATE_LIMIT_OPENAI_REFILL_RATE: z.coerce.number().positive().optional(),
+	RATE_LIMIT_ANTHROPIC_MAX_TOKENS: z.coerce.number().positive().optional(),
+	RATE_LIMIT_ANTHROPIC_REFILL_RATE: z.coerce.number().positive().optional(),
+	RATE_LIMIT_GOOGLE_MAX_TOKENS: z.coerce.number().positive().optional(),
+	RATE_LIMIT_GOOGLE_REFILL_RATE: z.coerce.number().positive().optional(),
+
+	// ── Timeouts (ms) — per-provider LLM request timeouts ─────
+	TIMEOUT_OPENAI_MS: z.coerce.number().positive().default(30_000),
+	TIMEOUT_ANTHROPIC_MS: z.coerce.number().positive().default(60_000),
+	TIMEOUT_GOOGLE_MS: z.coerce.number().positive().default(30_000),
 });
 
 export type Env = z.infer<typeof envSchema>;

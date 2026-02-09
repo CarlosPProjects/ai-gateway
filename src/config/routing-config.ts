@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import { env } from "@/config/env.ts";
 import type { ProviderName } from "@/config/providers.ts";
 import type { ModelPricing } from "@/types/metrics.ts";
 import type { RoutingRule } from "@/types/routing.ts";
@@ -23,15 +24,15 @@ export const RoutingConfigSchema = z.object({
 
 export type RoutingConfig = z.infer<typeof RoutingConfigSchema>;
 
-/** Load routing config from environment */
+/** Load routing config from validated environment */
 export function loadRoutingConfig(): RoutingConfig {
 	return RoutingConfigSchema.parse({
-		defaultStrategy: process.env.ROUTING_STRATEGY || "balanced",
-		defaultTimeoutMs: Number(process.env.ROUTING_TIMEOUT_MS) || 30_000,
-		maxRetries: Number(process.env.ROUTING_MAX_RETRIES) || 2,
-		retryBackoffBaseMs: Number(process.env.ROUTING_RETRY_BACKOFF_MS) || 500,
-		latencyEmaAlpha: Number(process.env.ROUTING_LATENCY_ALPHA) || 0.3,
-		latencyWindowSize: Number(process.env.ROUTING_LATENCY_WINDOW) || 100,
+		defaultStrategy: env.ROUTING_STRATEGY,
+		defaultTimeoutMs: env.ROUTING_TIMEOUT_MS,
+		maxRetries: env.ROUTING_MAX_RETRIES,
+		retryBackoffBaseMs: env.ROUTING_RETRY_BACKOFF_MS,
+		latencyEmaAlpha: env.ROUTING_LATENCY_ALPHA,
+		latencyWindowSize: env.ROUTING_LATENCY_WINDOW,
 	});
 }
 
