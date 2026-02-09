@@ -4,15 +4,49 @@ import {
 	BASE_BACKOFF_MS,
 	calculateBackoff,
 	isRetryableError,
+	MAX_BACKOFF_MS,
 	MAX_RETRIES,
 	sleep,
 } from "./retry-strategy.ts";
+
+/** Default total timeout for the entire fallback chain (ms) */
+const DEFAULT_TOTAL_TIMEOUT_MS = 30_000;
 
 /** Default fallback configuration */
 const DEFAULT_CONFIG: FallbackConfig = {
 	maxRetries: MAX_RETRIES,
 	baseBackoffMs: BASE_BACKOFF_MS,
+	maxBackoffMs: MAX_BACKOFF_MS,
+	totalTimeoutMs: DEFAULT_TOTAL_TIMEOUT_MS,
 };
+
+/** Options for a single executeWithFallback invocation */
+export interface ExecuteOptions {
+	/**
+	 * When `true`, per-provider retries are disabled — only provider failover
+	 * is performed. This prevents duplicate stream starts when the caller is
+	 * consuming an SSE / streaming response.
+	 */
+	streaming?: boolean;
+}
+
+/**
+ * Error thrown when the overall `totalTimeoutMs` deadline is exceeded before
+ * any provider returns a successful response.
+ */
+export class FallbackTimeoutError extends Error {
+	public readonly attempts: RetryAttempt[];
+	public readonly statusCode = 504;
+
+	constructor(totalTimeoutMs: number, attempts: RetryAttempt[]) {
+		super(
+			`Fallback chain timed out after ${totalTimeoutMs}ms. ` +
+				`${attempts.length} attempt(s) were made before the deadline.`,
+		);
+		this.name = "FallbackTimeoutError";
+		this.attempts = attempts;
+	}
+}
 
 /**
  * Aggregated error thrown when every provider in the fallback chain has been
@@ -42,18 +76,19 @@ export class AllProvidersFailedError extends Error {
  * across an ordered list of providers.
  *
  * Flow per provider:
- *   1. Call `executeFn(provider)`
- *   2. On retryable error → backoff & retry up to `maxRetries`
+ *   1. Call `executeFn(provider, signal)`
+ *   2. On retryable error → abort previous request, backoff & retry up to `maxRetries`
  *   3. On non-retryable error or retries exhausted → move to next provider
  *   4. If every provider fails → throw `AllProvidersFailedError` (HTTP 503)
+ *   5. If `totalTimeoutMs` elapses → throw `FallbackTimeoutError` (HTTP 504)
+ *
+ * When `streaming: true`, per-provider retries are disabled to avoid duplicate
+ * stream starts — only provider-level failover is performed.
  */
 export class FallbackHandler {
 	private readonly config: FallbackConfig;
 
-	constructor(
-		private readonly providers: string[],
-		config?: Partial<FallbackConfig>,
-	) {
+	constructor(config?: Partial<FallbackConfig>) {
 		this.config = { ...DEFAULT_CONFIG, ...config };
 	}
 
@@ -61,32 +96,67 @@ export class FallbackHandler {
 	 * Execute an operation with automatic retry and provider fallback.
 	 *
 	 * @param providers  Ordered provider list (first = preferred)
-	 * @param executeFn  Async function that performs the work for a given provider
+	 * @param executeFn  Async function that performs the work for a given provider.
+	 *                   Receives an `AbortSignal` — callers MUST pass it through
+	 *                   to the underlying HTTP/fetch call.
+	 * @param options    Optional execution flags (e.g. `streaming`)
 	 * @returns          The successful result wrapped with attempt metadata
 	 */
 	async executeWithFallback<T>(
 		providers: string[],
-		executeFn: (provider: string) => Promise<T>,
+		executeFn: (provider: string, signal: AbortSignal) => Promise<T>,
+		options?: ExecuteOptions,
 	): Promise<FallbackResult<T>> {
 		const attempts: RetryAttempt[] = [];
-		const providerList = providers.length > 0 ? providers : this.providers;
 
-		for (const provider of providerList) {
-			const result = await this.tryProvider<T>(provider, executeFn, attempts);
-			if (result !== undefined) {
-				return {
-					result,
-					attemptsUsed: attempts.length,
-					providersTriedCount: new Set(attempts.map((a) => a.provider)).size,
+		// --- Overall timeout (Issue #2) ---
+		const overallController = new AbortController();
+		const timeoutMs = this.config.totalTimeoutMs;
+		const timer = setTimeout(() => overallController.abort(), timeoutMs);
+
+		try {
+			for (const provider of providers) {
+				// Bail out early if the overall deadline already fired
+				if (overallController.signal.aborted) {
+					break;
+				}
+
+				const result = await this.tryProvider<T>(
+					provider,
+					executeFn,
 					attempts,
-				};
+					overallController.signal,
+					options,
+				);
+
+				if (result !== undefined) {
+					return {
+						result,
+						attemptsUsed: attempts.length,
+						providersTriedCount: new Set(attempts.map((a) => a.provider)).size,
+						attempts,
+					};
+				}
 			}
+		} finally {
+			clearTimeout(timer);
+		}
+
+		// If we broke out because of the overall timeout, throw a specific error
+		if (overallController.signal.aborted) {
+			logger.error({
+				type: "fallback_timeout",
+				totalTimeoutMs: timeoutMs,
+				totalAttempts: attempts.length,
+			});
+
+			throw new FallbackTimeoutError(timeoutMs, attempts);
 		}
 
 		// Every provider in the chain has failed
 		logger.error({
 			type: "fallback_exhausted",
-			providers: providerList,
+			providers,
 			totalAttempts: attempts.length,
 			errors: attempts.map((a) => ({
 				provider: a.provider,
@@ -104,16 +174,43 @@ export class FallbackHandler {
 	 */
 	private async tryProvider<T>(
 		provider: string,
-		executeFn: (provider: string) => Promise<T>,
+		executeFn: (provider: string, signal: AbortSignal) => Promise<T>,
 		attempts: RetryAttempt[],
+		overallSignal: AbortSignal,
+		options?: ExecuteOptions,
 	): Promise<T | undefined> {
-		const maxAttempts = this.config.maxRetries + 1; // first try + retries
+		// Streaming disables per-provider retries (Issue #3)
+		const maxAttempts = options?.streaming ? 1 : this.config.maxRetries + 1;
+
+		// Track the current per-attempt controller so we can abort in-flight
+		// requests when retrying (Issue #1)
+		let attemptController: AbortController | null = null;
 
 		for (let attempt = 0; attempt < maxAttempts; attempt++) {
+			// Abort previous in-flight request before starting a new attempt
+			if (attemptController) {
+				attemptController.abort();
+			}
+
+			// Create a fresh AbortController for this attempt. It should fire
+			// when *either* the overall deadline expires or we explicitly abort.
+			attemptController = new AbortController();
+			const currentController = attemptController;
+
+			// Link the overall signal to this attempt's controller
+			const onOverallAbort = () => currentController.abort();
+			overallSignal.addEventListener("abort", onOverallAbort, { once: true });
+
+			// Bail out if the overall deadline already fired
+			if (overallSignal.aborted) {
+				overallSignal.removeEventListener("abort", onOverallAbort);
+				return undefined;
+			}
+
 			const start = Date.now();
 
 			try {
-				const result = await executeFn(provider);
+				const result = await executeFn(provider, currentController.signal);
 
 				// Record successful attempt
 				attempts.push({
@@ -133,6 +230,9 @@ export class FallbackHandler {
 				return result;
 			} catch (err) {
 				const latencyMs = Date.now() - start;
+
+				// Preserve the original error type (Issue #5).
+				// APICallError and other Error subclasses keep their properties.
 				const error = err instanceof Error ? err : new Error(String(err));
 
 				attempts.push({
@@ -142,11 +242,20 @@ export class FallbackHandler {
 					timestamp: start,
 				});
 
+				// If the overall timeout fired, stop immediately
+				if (overallSignal.aborted) {
+					return undefined;
+				}
+
 				const retryable = isRetryableError(err);
-				const hasRetriesLeft = attempt < this.config.maxRetries;
+				const hasRetriesLeft = attempt < maxAttempts - 1;
 
 				if (retryable && hasRetriesLeft) {
-					const backoff = calculateBackoff(attempt, this.config.baseBackoffMs);
+					const backoff = calculateBackoff(
+						attempt,
+						this.config.baseBackoffMs,
+						this.config.maxBackoffMs,
+					);
 
 					logger.warn({
 						type: "fallback_retry",
@@ -171,6 +280,8 @@ export class FallbackHandler {
 				});
 
 				return undefined;
+			} finally {
+				overallSignal.removeEventListener("abort", onOverallAbort);
 			}
 		}
 

@@ -45,20 +45,27 @@ export function isRetryableError(error: unknown): boolean {
 	return false;
 }
 
+/** Default maximum backoff delay cap (ms) */
+export const MAX_BACKOFF_MS = 10_000;
+
 /**
  * Calculate exponential backoff delay with full jitter (AWS-style).
  *
  * Formula: random(0, min(cap, base * 2^attempt))
  * Full jitter prevents thundering-herd when multiple requests retry simultaneously.
  *
- * @param attempt  Zero-based retry attempt number
- * @param baseMs   Base delay in milliseconds (default: BASE_BACKOFF_MS)
+ * @param attempt    Zero-based retry attempt number
+ * @param baseMs     Base delay in milliseconds (default: BASE_BACKOFF_MS)
+ * @param maxDelayMs Maximum delay cap in milliseconds (default: MAX_BACKOFF_MS)
  * @returns Delay in milliseconds
  */
-export function calculateBackoff(attempt: number, baseMs: number = BASE_BACKOFF_MS): number {
-	const maxDelay = 10_000; // 10 s cap
+export function calculateBackoff(
+	attempt: number,
+	baseMs: number = BASE_BACKOFF_MS,
+	maxDelayMs: number = MAX_BACKOFF_MS,
+): number {
 	const exponentialDelay = baseMs * 2 ** attempt;
-	const capped = Math.min(exponentialDelay, maxDelay);
+	const capped = Math.min(exponentialDelay, maxDelayMs);
 
 	// Full jitter: uniform random between 0 and capped value
 	return Math.floor(Math.random() * capped);

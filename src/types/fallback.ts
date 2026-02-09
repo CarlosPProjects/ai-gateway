@@ -6,8 +6,10 @@ export interface FallbackConfig {
 	maxRetries: number;
 	/** Base delay for exponential backoff (ms) */
 	baseBackoffMs: number;
-	/** Overall timeout for the entire fallback chain (ms) */
-	totalTimeoutMs?: number;
+	/** Maximum backoff delay cap (ms). Defaults to 10 000 */
+	maxBackoffMs: number;
+	/** Overall timeout for the entire fallback chain (ms). Defaults to 30 000 */
+	totalTimeoutMs: number;
 	/** Provider order override (defaults to the order passed to executeWithFallback) */
 	providerOrder?: ProviderName[];
 }
