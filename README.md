@@ -61,7 +61,7 @@ Response ← Cost Tracking ← Cache Store ← Stream/Response ← Provider Adap
 | Technology | Purpose | Why |
 |---|---|---|
 | **TypeScript** | Language | Type safety with Zod runtime validation |
-| **Bun** | Runtime | Fast startup, native TypeScript, built-in test runner |
+| **Bun** | Runtime | Fast startup, native TypeScript, built-in tooling |
 | **Hono** | Web Framework | Lightweight, middleware-oriented, edge-ready |
 | **Vercel AI SDK** | LLM Abstraction | Multi-provider support, streaming, unified API |
 | **Redis Stack** | Semantic Cache | RediSearch for HNSW vector similarity search |
@@ -256,8 +256,7 @@ ai-gateway/
 │       └── token-bucket.ts      # Token bucket rate limiter
 ├── k8s/                         # Kubernetes manifests (GKE Autopilot)
 ├── docs/
-│   ├── API.md                   # Full API reference
-│   └── research/                # Architecture research & decisions
+│   └── API.md                   # Full API reference
 ├── Dockerfile                   # Multi-stage production build
 ├── docker-compose.yaml          # Local development (gateway + Redis)
 ├── biome.json                   # Biome linter/formatter config
@@ -303,8 +302,6 @@ kubectl apply -k k8s/
 ```
 
 Includes: Deployment with HPA (2-10 replicas), Redis StatefulSet with persistent storage, NetworkPolicies, health probes, and LoadBalancer ingress.
-
-> See the [K8s deployment research](./docs/research/k8s-deployment.md) for the full guide.
 
 ---
 
