@@ -1,6 +1,9 @@
 import { APICallError } from "ai";
 import type { ErrorHandler } from "hono";
 import { env } from "@/config/env.ts";
+import type { ProviderName } from "@/config/providers.ts";
+import { FallbackTimeoutError } from "@/routing/fallback-handler.ts";
+import { errorTracker } from "@/services/error-tracker.ts";
 import type { GatewayError } from "@/types/index.ts";
 import { logger } from "./logging.ts";
 
@@ -16,9 +19,19 @@ export const errorHandler: ErrorHandler = (err, c) => {
 		path: c.req.path,
 	});
 
+	// Determine provider from context or error details
+	const contextProvider = c.get("selectedProvider" as never) as
+		| { provider: ProviderName }
+		| undefined;
+	const isTimeout = err instanceof FallbackTimeoutError;
+
 	// Handle Vercel AI SDK API errors (from providers)
 	if (err instanceof APICallError) {
 		const status = err.statusCode ?? 500;
+		const provider = contextProvider?.provider ?? extractProviderFromError(err) ?? "unknown";
+
+		errorTracker.recordError(provider as ProviderName | "unknown", status, err.message, isTimeout);
+
 		const errorResponse: GatewayError = {
 			error: {
 				message: err.message,
@@ -30,6 +43,21 @@ export const errorHandler: ErrorHandler = (err, c) => {
 		return c.json(errorResponse, mapStatus(status));
 	}
 
+	// Determine status code for non-API errors
+	const genericStatus = isTimeout
+		? 504
+		: "statusCode" in err && typeof (err as { statusCode: unknown }).statusCode === "number"
+			? ((err as { statusCode: number }).statusCode as number)
+			: 500;
+
+	const provider = contextProvider?.provider ?? "unknown";
+	errorTracker.recordError(
+		provider as ProviderName | "unknown",
+		genericStatus,
+		err.message,
+		isTimeout,
+	);
+
 	// Handle generic errors
 	const errorResponse: GatewayError = {
 		error: {
@@ -39,7 +67,7 @@ export const errorHandler: ErrorHandler = (err, c) => {
 		},
 	};
 
-	return c.json(errorResponse, 500);
+	return c.json(errorResponse, mapStatus(genericStatus));
 };
 
 /** Map HTTP status codes to OpenAI-style error types */
@@ -53,8 +81,8 @@ function mapStatusToErrorType(status: number): string {
 }
 
 /** Ensure status is a valid HTTP status code */
-function mapStatus(status: number): 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503 {
-	const validStatuses = [400, 401, 403, 404, 429, 500, 502, 503] as const;
+function mapStatus(status: number): 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503 | 504 {
+	const validStatuses = [400, 401, 403, 404, 429, 500, 502, 503, 504] as const;
 	for (const valid of validStatuses) {
 		if (status === valid) return valid;
 	}
