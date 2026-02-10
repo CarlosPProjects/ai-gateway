@@ -1,0 +1,42 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ai-gateway
+
+commonLabels:
+  app.kubernetes.io/part-of: ai-gateway
+  app.kubernetes.io/managed-by: kustomize
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  # ──────────────────────────────────────────────────────────────
+  # secret.yaml is gitignored. Create it using ONE of these methods:
+  #
+  # Option 1 — Copy the example file:
+  #   cp secret.example.yaml secret.yaml
+  #   # Edit secret.yaml and replace placeholder values with base64-encoded secrets
+  #
+  # Option 2 — Create via kubectl (skip this resource):
+  #   kubectl create secret generic gateway-secrets \
+  #     --namespace=ai-gateway \
+  #     --from-literal=OPENAI_API_KEY=sk-... \
+  #     --from-literal=ANTHROPIC_API_KEY=sk-ant-...
+  #   # Then comment out the "- secret.yaml" line below.
+  # ──────────────────────────────────────────────────────────────
+  - secret.yaml
+  - redis-service.yaml
+  - redis-statefulset.yaml
+  - gateway-deployment.yaml
+  - gateway-service.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - network-policy.yaml
+  - ingress.yaml
+
+# Override the gateway image for different environments:
+#   kustomize edit set image REGION-docker.pkg.dev/PROJECT_ID/ai-gateway/ai-gateway=us-central1-docker.pkg.dev/my-project/ai-gateway/ai-gateway:v1.0.0
+images:
+  - name: REGION-docker.pkg.dev/PROJECT_ID/ai-gateway/ai-gateway
+    newName: REGION-docker.pkg.dev/PROJECT_ID/ai-gateway/ai-gateway
+    newTag: latest

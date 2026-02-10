@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-gateway-lb
+  namespace: ai-gateway
+  labels:
+    app.kubernetes.io/name: ai-gateway
+    app.kubernetes.io/component: loadbalancer
+  annotations:
+    # GKE-specific: use Regional Backend Service for external Network Load Balancer.
+    # Uncomment if your GKE cluster has the Gateway API or l4-rbs feature enabled:
+    # cloud.google.com/l4-rbs: "enabled"
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: ai-gateway
+    app.kubernetes.io/component: gateway
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: http
