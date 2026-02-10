@@ -34,7 +34,7 @@ app.get("/", (c) => {
 	return c.json({
 		name: "ai-gateway",
 		version: "0.1.0",
-		endpoints: ["/v1/chat/completions", "/health", "/ready"],
+		endpoints: ["/v1/chat/completions", "/health", "/ready", "/metrics", "/metrics/costs"],
 	});
 });
 

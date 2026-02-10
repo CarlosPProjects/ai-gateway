@@ -41,13 +41,25 @@ export function requestLogger(): MiddlewareHandler {
 
 		const duration = Date.now() - start;
 
-		logger.info({
+		// Build response log with optional cost fields
+		const responseLog: Record<string, unknown> = {
 			type: "response",
 			requestId,
 			method: c.req.method,
 			path: c.req.path,
 			status: c.res.status,
 			duration,
-		});
+		};
+
+		// Include cost fields from response headers if set by the chat route
+		const costUsd = c.res.headers.get("x-cost-usd");
+		const inputTokens = c.res.headers.get("x-input-tokens");
+		const outputTokens = c.res.headers.get("x-output-tokens");
+
+		if (costUsd) responseLog.cost_usd = Number.parseFloat(costUsd);
+		if (inputTokens) responseLog.input_tokens = Number.parseInt(inputTokens, 10);
+		if (outputTokens) responseLog.output_tokens = Number.parseInt(outputTokens, 10);
+
+		logger.info(responseLog);
 	};
 }

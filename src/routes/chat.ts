@@ -2,6 +2,8 @@ import { zValidator } from "@hono/zod-validator";
 import { generateText, streamText } from "ai";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { logger } from "@/middleware/logging.ts";
+import { recordCost } from "@/services/cost-tracker.ts";
 import { routeModel } from "@/services/router/index.ts";
 import type { ChatCompletionChunk, ChatCompletionResponse } from "@/types/index.ts";
 import { ChatCompletionRequestSchema } from "@/types/index.ts";
@@ -104,6 +106,27 @@ chat.post(
 				await sseStream.writeSSE({
 					data: "[DONE]",
 				});
+
+				// Record cost after stream completes (Vercel AI SDK resolves usage after stream)
+				try {
+					const usage = await result.usage;
+					if (usage) {
+						const inputTokens = usage.inputTokens ?? 0;
+						const outputTokens = usage.outputTokens ?? 0;
+						const costRecord = recordCost(route.provider, route.modelId, inputTokens, outputTokens);
+						logger.info({
+							type: "cost",
+							provider: route.provider,
+							model: route.modelId,
+							streaming: true,
+							input_tokens: inputTokens,
+							output_tokens: outputTokens,
+							cost_usd: costRecord.costUsd,
+						});
+					}
+				} catch {
+					// Usage may not be available for all providers — non-fatal
+				}
 			});
 		}
 
@@ -118,6 +141,21 @@ chat.post(
 			maxOutputTokens: max_tokens ?? undefined,
 			topP: top_p ?? undefined,
 			stopSequences,
+		});
+
+		const inputTokens = result.usage?.inputTokens ?? 0;
+		const outputTokens = result.usage?.outputTokens ?? 0;
+
+		// Record cost tracking
+		const costRecord = recordCost(route.provider, route.modelId, inputTokens, outputTokens);
+		logger.info({
+			type: "cost",
+			provider: route.provider,
+			model: route.modelId,
+			streaming: false,
+			input_tokens: inputTokens,
+			output_tokens: outputTokens,
+			cost_usd: costRecord.costUsd,
 		});
 
 		const response: ChatCompletionResponse = {
@@ -136,8 +174,8 @@ chat.post(
 				},
 			],
 			usage: {
-				prompt_tokens: result.usage?.inputTokens ?? 0,
-				completion_tokens: result.usage?.outputTokens ?? 0,
+				prompt_tokens: inputTokens,
+				completion_tokens: outputTokens,
 				total_tokens: result.usage?.totalTokens ?? 0,
 			},
 		};
