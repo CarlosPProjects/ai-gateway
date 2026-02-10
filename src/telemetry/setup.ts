@@ -80,5 +80,3 @@ export function recordSpanError(span: Span, error: unknown): void {
 		span.recordException(new Error(String(error)));
 	}
 }
-
-export { SpanStatusCode };

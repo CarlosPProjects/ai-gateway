@@ -11,6 +11,7 @@ function getProvider(): ReturnType<typeof createOpenAI> {
 	return instance;
 }
 
+/** Create a Vercel AI SDK LanguageModel backed by OpenAI. */
 export function createOpenAIModel(modelId: string): LanguageModel {
 	return getProvider()(modelId);
 }

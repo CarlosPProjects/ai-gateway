@@ -25,6 +25,12 @@ interface ProviderLatencyState {
 	lastUpdated: number;
 }
 
+/**
+ * Provider latency tracker with EMA and percentile support.
+ *
+ * Keeps a bounded rolling window of latency samples per provider
+ * and maintains an exponential moving average for fast routing decisions.
+ */
 export class LatencyTracker {
 	private readonly state = new Map<ProviderName, ProviderLatencyState>();
 	private readonly windowSize: number;

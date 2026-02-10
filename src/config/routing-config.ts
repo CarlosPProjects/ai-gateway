@@ -4,6 +4,20 @@ import type { ProviderName } from "@/config/providers.ts";
 import type { ModelPricing } from "@/types/metrics.ts";
 import type { RoutingRule } from "@/types/routing.ts";
 
+// ── Helper ────────────────────────────────────────────────
+
+/** Create a typed ModelPricing entry without `as ProviderName` casts. */
+function pricing(
+	modelId: string,
+	provider: ProviderName,
+	inputPer1k: number,
+	outputPer1k: number,
+): ModelPricing {
+	return { modelId, provider, inputPer1k, outputPer1k };
+}
+
+// ── Schema ────────────────────────────────────────────────
+
 /** Routing configuration schema (validated at startup) */
 export const RoutingConfigSchema = z.object({
 	/** Default routing strategy */
@@ -36,43 +50,22 @@ export function loadRoutingConfig(): RoutingConfig {
 	});
 }
 
+// ── Model Pricing ─────────────────────────────────────────
+
 /** Default model pricing (static, updated periodically) */
 export const MODEL_PRICING: ModelPricing[] = [
 	// OpenAI
-	{ modelId: "gpt-4o", provider: "openai" as ProviderName, inputPer1k: 0.0025, outputPer1k: 0.01 },
-	{
-		modelId: "gpt-4o-mini",
-		provider: "openai" as ProviderName,
-		inputPer1k: 0.00015,
-		outputPer1k: 0.0006,
-	},
+	pricing("gpt-4o", "openai", 0.0025, 0.01),
+	pricing("gpt-4o-mini", "openai", 0.00015, 0.0006),
 	// Anthropic
-	{
-		modelId: "claude-sonnet-4-20250514",
-		provider: "anthropic" as ProviderName,
-		inputPer1k: 0.003,
-		outputPer1k: 0.015,
-	},
-	{
-		modelId: "claude-haiku-3-5",
-		provider: "anthropic" as ProviderName,
-		inputPer1k: 0.0008,
-		outputPer1k: 0.004,
-	},
+	pricing("claude-sonnet-4-20250514", "anthropic", 0.003, 0.015),
+	pricing("claude-haiku-3-5", "anthropic", 0.0008, 0.004),
 	// Google
-	{
-		modelId: "gemini-2.0-flash",
-		provider: "google" as ProviderName,
-		inputPer1k: 0.0001,
-		outputPer1k: 0.0004,
-	},
-	{
-		modelId: "gemini-2.0-pro",
-		provider: "google" as ProviderName,
-		inputPer1k: 0.00125,
-		outputPer1k: 0.005,
-	},
+	pricing("gemini-2.0-flash", "google", 0.0001, 0.0004),
+	pricing("gemini-2.0-pro", "google", 0.00125, 0.005),
 ];
+
+// ── Routing Rules ─────────────────────────────────────────
 
 /** Default routing rules */
 export const DEFAULT_ROUTING_RULES: RoutingRule[] = [
@@ -81,13 +74,13 @@ export const DEFAULT_ROUTING_RULES: RoutingRule[] = [
 		description: "Prefer cheapest provider when cost constraint is set",
 		priority: 10,
 		condition: { type: "cost", maxCostPer1kTokens: 0.005 },
-		preferredProviders: ["google" as ProviderName, "openai" as ProviderName],
+		preferredProviders: ["google", "openai"],
 	},
 	{
 		id: "low-latency",
 		description: "Prefer fastest provider when latency constraint is set",
 		priority: 20,
 		condition: { type: "latency", maxMs: 1000 },
-		preferredProviders: ["openai" as ProviderName],
+		preferredProviders: ["openai"],
 	},
 ];

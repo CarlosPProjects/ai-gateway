@@ -254,11 +254,6 @@ ai-gateway/
 │   ├── types/                   # Shared TypeScript types (Zod schemas)
 │   └── utils/
 │       └── token-bucket.ts      # Token bucket rate limiter
-├── tests/
-│   ├── health.test.ts           # Health endpoint tests
-│   ├── chat.test.ts             # Request validation tests
-│   ├── cost-tracker.test.ts     # Cost calculation unit tests
-│   └── error-tracker.test.ts    # Error recording unit tests
 ├── k8s/                         # Kubernetes manifests (GKE Autopilot)
 ├── docs/
 │   ├── API.md                   # Full API reference
@@ -313,20 +308,17 @@ Includes: Deployment with HPA (2-10 replicas), Redis StatefulSet with persistent
 
 ---
 
-## Testing
+## Verification
 
 ```bash
-# Run all tests
-bun test
+# Type check (strict mode, no emit)
+bun run typecheck
 
-# Run specific test file
-bun test tests/cost-tracker.test.ts
+# Lint + format check
+bun run lint
 
-# Type check
-bunx tsc --noEmit
-
-# Lint + format
-bunx biome check --write .
+# Lint + format with auto-fix
+bun run check
 ```
 
 ---

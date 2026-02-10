@@ -1,24 +1,34 @@
 import { zValidator } from "@hono/zod-validator";
+import type { Span } from "@opentelemetry/api";
 import { context, SpanStatusCode, trace } from "@opentelemetry/api";
 import { generateText, streamText } from "ai";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { logger } from "@/middleware/logging.ts";
 import { recordCost } from "@/services/cost-tracker.ts";
-import { routeModel } from "@/services/router/index.ts";
-import { getTracer } from "@/telemetry/setup.ts";
-import type { ChatCompletionChunk, ChatCompletionResponse } from "@/types/index.ts";
+import { type ResolvedRoute, routeModel } from "@/services/router/index.ts";
+import { getTracer, recordSpanError } from "@/telemetry/setup.ts";
+import type { ChatCompletionChunk, ChatCompletionResponse, Message } from "@/types/index.ts";
 import { ChatCompletionRequestSchema } from "@/types/index.ts";
 
 const chat = new Hono();
 
+// ── Constants ────────────────────────────────────────────────
+
 /** Maximum plausible token count — anything above this is likely a bug */
 const MAX_REASONABLE_TOKENS = 1_000_000;
 
+/** Prefix for generated completion IDs (matches OpenAI format) */
+const COMPLETION_ID_PREFIX = "chatcmpl-";
+
+/** Length of the random suffix in completion IDs */
+const COMPLETION_ID_SUFFIX_LENGTH = 24;
+
+// ── Shared Helpers ───────────────────────────────────────────
+
 /**
  * Validate token counts before recording cost.
- * Returns true if tokens are within reasonable bounds.
- * Logs warnings for suspicious values and returns false for obviously bad data.
+ * @returns `true` if tokens are within reasonable bounds.
  */
 function validateTokenCounts(
 	inputTokens: number,
@@ -45,9 +55,58 @@ function validateTokenCounts(
 	return true;
 }
 
+/** Generate an OpenAI-compatible completion ID. */
 function generateId(): string {
-	return `chatcmpl-${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
+	return `${COMPLETION_ID_PREFIX}${crypto.randomUUID().replace(/-/g, "").slice(0, COMPLETION_ID_SUFFIX_LENGTH)}`;
 }
+
+/** Convert messages to the format expected by Vercel AI SDK. */
+function toSdkMessages(
+	messages: Message[],
+): Array<{ role: "system" | "user" | "assistant"; content: string }> {
+	return messages.map((m) => ({ role: m.role, content: m.content }));
+}
+
+/**
+ * Record token usage, cost, and span attributes for a completed LLM call.
+ * Shared by both streaming and non-streaming paths.
+ */
+function recordUsageAndCost(
+	inputTokens: number,
+	outputTokens: number,
+	route: ResolvedRoute,
+	streaming: boolean,
+	span: Span,
+	llmStart: number,
+): void {
+	if (!inputTokens && !outputTokens) {
+		logger.warn(
+			{ provider: route.provider, model: route.modelId, streaming },
+			"Provider returned empty usage data — recording zero cost",
+		);
+	}
+
+	if (validateTokenCounts(inputTokens, outputTokens, route.provider, route.modelId)) {
+		const costRecord = recordCost(route.provider, route.modelId, inputTokens, outputTokens);
+		logger.info({
+			type: "cost",
+			provider: route.provider,
+			model: route.modelId,
+			streaming,
+			input_tokens: inputTokens,
+			output_tokens: outputTokens,
+			cost_usd: costRecord.costUsd,
+		});
+	}
+
+	span.setAttributes({
+		"tokens.input": inputTokens,
+		"tokens.output": outputTokens,
+		latency_ms: Date.now() - llmStart,
+	});
+}
+
+// ── Route Handler ────────────────────────────────────────────
 
 chat.post(
 	"/v1/chat/completions",
@@ -76,6 +135,9 @@ chat.post(
 		// Convert stop to array format if needed
 		const stopSequences = stop ? (Array.isArray(stop) ? stop : [stop]) : undefined;
 
+		// Shared SDK message format
+		const sdkMessages = toSdkMessages(messages);
+
 		// Create LLM call span (child of the active trace context)
 		const parentSpan = trace.getSpan(context.active());
 		const tracer = getTracer();
@@ -103,22 +165,20 @@ chat.post(
 			const capturedCtx = context.active();
 
 			return streamSSE(c, async (sseStream) => {
-				// Wrap callback in the captured OTel context so child spans
-				// are correctly parented even inside the SSE async boundary.
 				await context.with(capturedCtx, async () => {
 					try {
 						const result = streamText({
 							model: route.model,
-							messages: messages.map((m) => ({
-								role: m.role,
-								content: m.content,
-							})),
+							messages: sdkMessages,
 							temperature,
 							maxOutputTokens: max_tokens ?? undefined,
 							topP: top_p ?? undefined,
 							stopSequences,
 							onError({ error }) {
-								console.error("Stream error:", error);
+								logger.error(
+									{ err: error instanceof Error ? error.message : String(error) },
+									"Stream error",
+								);
 							},
 						});
 
@@ -138,9 +198,7 @@ chat.post(
 								],
 							};
 
-							await sseStream.writeSSE({
-								data: JSON.stringify(chunk),
-							});
+							await sseStream.writeSSE({ data: JSON.stringify(chunk) });
 						}
 
 						// Send final chunk with finish_reason
@@ -149,61 +207,24 @@ chat.post(
 							object: "chat.completion.chunk",
 							created,
 							model: route.modelId,
-							choices: [
-								{
-									index: 0,
-									delta: {},
-									finish_reason: "stop",
-								},
-							],
+							choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
 						};
 
-						await sseStream.writeSSE({
-							data: JSON.stringify(finalChunk),
-						});
+						await sseStream.writeSSE({ data: JSON.stringify(finalChunk) });
+						await sseStream.writeSSE({ data: "[DONE]" });
 
-						// Send [DONE] marker per OpenAI spec
-						await sseStream.writeSSE({
-							data: "[DONE]",
-						});
-
-						// Record cost after stream completes (Vercel AI SDK resolves usage after stream)
+						// Record cost after stream completes
 						try {
 							const usage = await result.usage;
 							if (usage) {
-								const inputTokens = usage.inputTokens ?? 0;
-								const outputTokens = usage.outputTokens ?? 0;
-
-								if (!usage.inputTokens && !usage.outputTokens) {
-									logger.warn(
-										{ provider: route.provider, model: route.modelId, streaming: true },
-										"Provider returned empty usage data — recording zero cost",
-									);
-								}
-
-								if (validateTokenCounts(inputTokens, outputTokens, route.provider, route.modelId)) {
-									const costRecord = recordCost(
-										route.provider,
-										route.modelId,
-										inputTokens,
-										outputTokens,
-									);
-									logger.info({
-										type: "cost",
-										provider: route.provider,
-										model: route.modelId,
-										streaming: true,
-										input_tokens: inputTokens,
-										output_tokens: outputTokens,
-										cost_usd: costRecord.costUsd,
-									});
-								}
-
-								llmSpan.setAttributes({
-									"tokens.input": inputTokens,
-									"tokens.output": outputTokens,
-									latency_ms: Date.now() - llmStart,
-								});
+								recordUsageAndCost(
+									usage.inputTokens ?? 0,
+									usage.outputTokens ?? 0,
+									route,
+									true,
+									llmSpan,
+									llmStart,
+								);
 							} else {
 								logger.warn(
 									{ provider: route.provider, model: route.modelId, streaming: true },
@@ -212,7 +233,6 @@ chat.post(
 								llmSpan.setAttributes({ latency_ms: Date.now() - llmStart });
 							}
 						} catch {
-							// Usage may not be available for all providers — non-fatal
 							logger.warn(
 								{ provider: route.provider, model: route.modelId, streaming: true },
 								"Failed to resolve usage data from stream — cost not recorded",
@@ -222,10 +242,7 @@ chat.post(
 
 						llmSpan.setStatus({ code: SpanStatusCode.OK });
 					} catch (error) {
-						llmSpan.setStatus({ code: SpanStatusCode.ERROR });
-						if (error instanceof Error) {
-							llmSpan.recordException(error);
-						}
+						recordSpanError(llmSpan, error);
 						throw error;
 					} finally {
 						llmSpan.end();
@@ -238,10 +255,7 @@ chat.post(
 		try {
 			const result = await generateText({
 				model: route.model,
-				messages: messages.map((m) => ({
-					role: m.role,
-					content: m.content,
-				})),
+				messages: sdkMessages,
 				temperature,
 				maxOutputTokens: max_tokens ?? undefined,
 				topP: top_p ?? undefined,
@@ -251,26 +265,7 @@ chat.post(
 			const inputTokens = result.usage?.inputTokens ?? 0;
 			const outputTokens = result.usage?.outputTokens ?? 0;
 
-			if (!result.usage?.inputTokens && !result.usage?.outputTokens) {
-				logger.warn(
-					{ provider: route.provider, model: route.modelId, streaming: false },
-					"Provider did not return usage data — recording zero cost",
-				);
-			}
-
-			// Record cost tracking (skip obviously bad data)
-			if (validateTokenCounts(inputTokens, outputTokens, route.provider, route.modelId)) {
-				const costRecord = recordCost(route.provider, route.modelId, inputTokens, outputTokens);
-				logger.info({
-					type: "cost",
-					provider: route.provider,
-					model: route.modelId,
-					streaming: false,
-					input_tokens: inputTokens,
-					output_tokens: outputTokens,
-					cost_usd: costRecord.costUsd,
-				});
-			}
+			recordUsageAndCost(inputTokens, outputTokens, route, false, llmSpan, llmStart);
 
 			const response: ChatCompletionResponse = {
 				id: generateId(),
@@ -280,10 +275,7 @@ chat.post(
 				choices: [
 					{
 						index: 0,
-						message: {
-							role: "assistant",
-							content: result.text,
-						},
+						message: { role: "assistant", content: result.text },
 						finish_reason: result.finishReason ?? "stop",
 					},
 				],
@@ -294,20 +286,12 @@ chat.post(
 				},
 			};
 
-			llmSpan.setAttributes({
-				"tokens.input": inputTokens,
-				"tokens.output": outputTokens,
-				latency_ms: Date.now() - llmStart,
-			});
 			llmSpan.setStatus({ code: SpanStatusCode.OK });
 			llmSpan.end();
 
 			return c.json(response);
 		} catch (error) {
-			llmSpan.setStatus({ code: SpanStatusCode.ERROR });
-			if (error instanceof Error) {
-				llmSpan.recordException(error);
-			}
+			recordSpanError(llmSpan, error);
 			llmSpan.end();
 			throw error;
 		}

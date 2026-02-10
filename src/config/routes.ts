@@ -1,10 +1,12 @@
 import type { ProviderName } from "@/services/providers/index.ts";
 
+/** A single provider + model pair used as a routing target. */
 export interface RouteTarget {
 	provider: ProviderName;
 	model: string;
 }
 
+/** Routing configuration for a model alias — primary target with optional fallbacks. */
 export interface RouteConfig {
 	/** Primary target for this model alias */
 	primary: RouteTarget;

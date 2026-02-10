@@ -1,4 +1,4 @@
-import type { ProviderName } from "@/config/providers.ts";
+import { PROVIDER_NAMES, type ProviderName } from "@/config/providers.ts";
 import { latencyTracker } from "@/metrics/latency-tracker.ts";
 import { logger } from "@/middleware/logging.ts";
 import type { ProviderState } from "@/types/provider.ts";
@@ -155,6 +155,5 @@ export class ProviderRegistry {
 	}
 }
 
-// TODO: Replace hardcoded provider list with dynamic discovery from config/environment
 /** Default singleton initialised with all known providers. */
-export const providerRegistry = new ProviderRegistry(["openai", "anthropic", "google"]);
+export const providerRegistry = new ProviderRegistry([...PROVIDER_NAMES]);

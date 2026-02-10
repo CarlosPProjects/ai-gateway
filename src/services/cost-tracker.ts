@@ -20,6 +20,7 @@ interface ProviderCostStats {
 	outputTokens: number;
 }
 
+/** Aggregated cost tracking snapshot returned by getCostSummary(). */
 export interface CostSummary {
 	totalCostUsd: number;
 	totalInputTokens: number;
@@ -42,6 +43,9 @@ const COST_ALERT_TIERS_USD = [10, 50, 100, 500] as const;
 
 /** Alert reset interval — resets fired alerts so they can re-trigger (24h) */
 const ALERT_RESET_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/** Multiplier for rounding USD values to 4 decimal places */
+const USD_PRECISION = 10_000;
 
 // ── State ────────────────────────────────────────────────
 
@@ -113,7 +117,7 @@ function checkCostAlerts(): void {
 			logger.warn(
 				{
 					alert: "cost_threshold_exceeded",
-					totalCostUsd: Math.round(totalCostUsd * 10000) / 10000,
+					totalCostUsd: Math.round(totalCostUsd * USD_PRECISION) / USD_PRECISION,
 					thresholdUsd: tier,
 				},
 				`Cumulative cost exceeded $${tier}`,
@@ -184,7 +188,7 @@ export function recordCost(
 /** Get a snapshot of cost tracking data */
 export function getCostSummary(): CostSummary {
 	return {
-		totalCostUsd: Math.round(totalCostUsd * 10000) / 10000,
+		totalCostUsd: Math.round(totalCostUsd * USD_PRECISION) / USD_PRECISION,
 		totalInputTokens,
 		totalOutputTokens,
 		byProvider: {

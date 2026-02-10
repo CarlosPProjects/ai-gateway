@@ -14,6 +14,7 @@ function getProvider(): ReturnType<typeof createGoogleGenerativeAI> {
 	return instance;
 }
 
+/** Create a Vercel AI SDK LanguageModel backed by Google Generative AI. */
 export function createGoogleModel(modelId: string): LanguageModel {
 	return getProvider()(modelId);
 }
