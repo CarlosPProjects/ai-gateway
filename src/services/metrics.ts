@@ -1,7 +1,9 @@
 /**
  * Simple in-memory metrics store for cache and gateway stats.
- * Tracks hit/miss/skip counters, latency, and embedding costs.
+ * Tracks hit/miss/skip counters, latency, embedding costs, and request costs.
  */
+
+import { type CostSummary, getCostSummary } from "@/services/cost-tracker.ts";
 
 interface CacheMetrics {
 	hits: number;
@@ -17,6 +19,7 @@ interface GatewayMetrics {
 	totalRequests: number;
 	startedAt: string;
 	cache: CacheMetrics;
+	cost: CostSummary;
 }
 
 // In-memory counters
@@ -63,6 +66,11 @@ export function recordRequest(): void {
 	totalRequests++;
 }
 
+/** Get the current total request count (useful for rate calculations) */
+export function getTotalRequests(): number {
+	return totalRequests;
+}
+
 /** Get a snapshot of all metrics */
 export function getMetrics(): GatewayMetrics {
 	return {
@@ -77,5 +85,6 @@ export function getMetrics(): GatewayMetrics {
 			avgMissLatencyMs: misses > 0 ? Math.round(missLatencySum / misses) : 0,
 			totalEmbeddingCalls: embeddingCalls,
 		},
+		cost: getCostSummary(),
 	};
 }
