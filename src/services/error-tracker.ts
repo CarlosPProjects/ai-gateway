@@ -38,6 +38,7 @@ interface TimestampedError {
 	timestamp: number;
 }
 
+/** Aggregated error tracking snapshot returned by getErrorSummary(). */
 export interface ErrorSummary {
 	global: {
 		totalErrors: number;
@@ -57,6 +58,9 @@ const ERROR_RATE_WINDOW_MS = 5 * 60 * 1000;
 
 /** Alert threshold — warn if error rate exceeds 50% */
 const ALERT_THRESHOLD = 0.5;
+
+/** Consecutive failures before a provider is considered unhealthy */
+const UNHEALTHY_CONSECUTIVE_FAILURES = 5;
 
 /** Cooldown between repeated alerts for the same provider (5 minutes) */
 const ALERT_COOLDOWN_MS = 5 * 60 * 1000;
@@ -250,7 +254,8 @@ export function getProviderHealth(provider: ProviderName): ProviderHealth {
 	}
 
 	return {
-		healthy: errorRate <= ALERT_THRESHOLD && stats.consecutiveFailures < 5,
+		healthy:
+			errorRate <= ALERT_THRESHOLD && stats.consecutiveFailures < UNHEALTHY_CONSECUTIVE_FAILURES,
 		errorRate,
 		consecutiveFailures: stats.consecutiveFailures,
 	};

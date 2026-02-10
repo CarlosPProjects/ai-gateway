@@ -44,11 +44,7 @@ export const errorHandler: ErrorHandler = (err, c) => {
 	}
 
 	// Determine status code for non-API errors
-	const genericStatus = isTimeout
-		? 504
-		: "statusCode" in err && typeof (err as { statusCode: unknown }).statusCode === "number"
-			? ((err as { statusCode: number }).statusCode as number)
-			: 500;
+	const genericStatus = isTimeout ? 504 : (extractStatusCode(err) ?? 500);
 
 	const provider = contextProvider?.provider ?? "unknown";
 	errorTracker.recordError(
@@ -88,6 +84,14 @@ function mapStatus(status: number): 400 | 401 | 403 | 404 | 429 | 500 | 502 | 50
 	}
 	if (status >= 400 && status < 500) return 400;
 	return 500;
+}
+
+/** Try to extract a numeric status code from an error object. */
+function extractStatusCode(err: Error): number | undefined {
+	if ("statusCode" in err && typeof err.statusCode === "number") {
+		return err.statusCode;
+	}
+	return undefined;
 }
 
 /** Try to extract provider name from API error */

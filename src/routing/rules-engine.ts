@@ -15,7 +15,24 @@ const BALANCED_WEIGHTS = {
 	capability: 0.3,
 } as const;
 
-/** Capabilities associated with each provider+model (static mapping) */
+/** Preference boost factor per rule-priority point */
+const PREFERENCE_BOOST_FACTOR = 0.05;
+
+/** Default capability score normalizer (models with 5+ capabilities get a full score) */
+const MAX_CAPABILITY_BASELINE = 5;
+
+/** Default fallback latency (ms) for providers with no recorded data */
+const DEFAULT_LATENCY_MS = 500;
+
+/**
+ * Default model capabilities keyed by `"provider:modelId"`.
+ *
+ * This map is the initial seed — callers can extend or override it by passing
+ * a custom `capabilities` map to the `RoutingRulesEngine` constructor.
+ *
+ * To add a new model, append an entry here or supply a runtime override
+ * via `RoutingRulesEngine.withCapabilities()`.
+ */
 const DEFAULT_CAPABILITIES: Record<string, ModelCapability[]> = {
 	"openai:gpt-4o": ["streaming", "vision", "function_calling", "json_mode"],
 	"openai:gpt-4o-mini": ["streaming", "function_calling", "json_mode"],
@@ -35,8 +52,13 @@ const DEFAULT_CAPABILITIES: Record<string, ModelCapability[]> = {
 export class RoutingRulesEngine {
 	private readonly rules: RoutingRule[];
 	private readonly pricing: ModelPricing[];
+	private readonly capabilities: Record<string, ModelCapability[]>;
 
-	constructor(rules: RoutingRule[], pricing: ModelPricing[]) {
+	constructor(
+		rules: RoutingRule[],
+		pricing: ModelPricing[],
+		capabilities?: Record<string, ModelCapability[]>,
+	) {
 		if (pricing.length === 0) {
 			throw new Error("RoutingRulesEngine requires non-empty pricing data");
 		}
@@ -44,6 +66,19 @@ export class RoutingRulesEngine {
 		// Sort rules by priority descending (higher priority first)
 		this.rules = [...rules].sort((a, b) => b.priority - a.priority);
 		this.pricing = pricing;
+		// Merge caller-supplied overrides on top of the built-in defaults
+		this.capabilities = { ...DEFAULT_CAPABILITIES, ...capabilities };
+	}
+
+	/**
+	 * Create a new engine instance with additional capability entries merged
+	 * on top of the current set. Useful for runtime registration of new models.
+	 */
+	withCapabilities(extra: Record<string, ModelCapability[]>): RoutingRulesEngine {
+		return new RoutingRulesEngine(this.rules, this.pricing, {
+			...this.capabilities,
+			...extra,
+		});
 	}
 
 	/**
@@ -111,7 +146,7 @@ export class RoutingRulesEngine {
 
 			for (const model of providerModels) {
 				const capKey = `${provider.id}:${model.modelId}`;
-				const capabilities = DEFAULT_CAPABILITIES[capKey] ?? [];
+				const capabilities = this.capabilities[capKey] ?? [];
 
 				// Check if model meets request's required capabilities
 				const meetsCapabilities = this.checkCapabilities(
@@ -271,8 +306,7 @@ export class RoutingRulesEngine {
 		if (provider.latency) {
 			return provider.latency.emaMs;
 		}
-		// Default latency for providers with no data (assume moderate)
-		return 500;
+		return DEFAULT_LATENCY_MS;
 	}
 
 	/** Compute capability match score [0, 1] */
@@ -283,7 +317,7 @@ export class RoutingRulesEngine {
 		if (!required || required.length === 0) {
 			// No requirements — full score based on total capabilities
 			// More capabilities is slightly better
-			return Math.min(available.length / 5, 1);
+			return Math.min(available.length / MAX_CAPABILITY_BASELINE, 1);
 		}
 
 		const matched = required.filter((cap) => available.includes(cap));
@@ -300,7 +334,7 @@ export class RoutingRulesEngine {
 
 			// Boost preferred providers proportional to rule priority
 			if (rule.preferredProviders?.includes(candidate.provider.id)) {
-				boost += rule.priority * 0.05;
+				boost += rule.priority * PREFERENCE_BOOST_FACTOR;
 			}
 		}
 

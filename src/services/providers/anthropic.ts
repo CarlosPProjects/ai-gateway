@@ -14,6 +14,7 @@ function getProvider(): ReturnType<typeof createAnthropic> {
 	return instance;
 }
 
+/** Create a Vercel AI SDK LanguageModel backed by Anthropic. */
 export function createAnthropicModel(modelId: string): LanguageModel {
 	return getProvider()(modelId);
 }

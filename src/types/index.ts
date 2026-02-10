@@ -1,12 +1,14 @@
 import { z } from "zod/v4";
 
-// --- OpenAI-compatible Request Types ---
+// ── OpenAI-compatible Request Types ─────────────────────────
 
+/** Zod schema for a single chat message */
 export const MessageSchema = z.object({
 	role: z.enum(["system", "user", "assistant"]),
 	content: z.string(),
 });
 
+/** Zod schema for the POST /v1/chat/completions request body */
 export const ChatCompletionRequestSchema = z.object({
 	model: z.string(),
 	messages: z.array(MessageSchema).min(1),
@@ -17,11 +19,15 @@ export const ChatCompletionRequestSchema = z.object({
 	stop: z.union([z.string(), z.array(z.string())]).optional(),
 });
 
+/** Inferred type for a validated chat completion request */
 export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequestSchema>;
+
+/** Inferred type for a single chat message */
 export type Message = z.infer<typeof MessageSchema>;
 
-// --- OpenAI-compatible Response Types ---
+// ── OpenAI-compatible Response Types ────────────────────────
 
+/** A single choice in a non-streaming chat completion response */
 export interface ChatCompletionChoice {
 	index: number;
 	message: {
@@ -31,6 +37,7 @@ export interface ChatCompletionChoice {
 	finish_reason: string | null;
 }
 
+/** Full non-streaming chat completion response (OpenAI format) */
 export interface ChatCompletionResponse {
 	id: string;
 	object: "chat.completion";
@@ -44,8 +51,9 @@ export interface ChatCompletionResponse {
 	};
 }
 
-// --- Streaming Response Types ---
+// ── Streaming Response Types ────────────────────────────────
 
+/** A single choice in a streaming chunk */
 export interface ChatCompletionChunkChoice {
 	index: number;
 	delta: {
@@ -55,6 +63,7 @@ export interface ChatCompletionChunkChoice {
 	finish_reason: string | null;
 }
 
+/** A single SSE chunk in a streaming chat completion response */
 export interface ChatCompletionChunk {
 	id: string;
 	object: "chat.completion.chunk";
@@ -63,8 +72,9 @@ export interface ChatCompletionChunk {
 	choices: ChatCompletionChunkChoice[];
 }
 
-// --- Error Types ---
+// ── Error Types ─────────────────────────────────────────────
 
+/** OpenAI-compatible error response envelope */
 export interface GatewayError {
 	error: {
 		message: string;

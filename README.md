@@ -61,7 +61,7 @@ Response ← Cost Tracking ← Cache Store ← Stream/Response ← Provider Adap
 | Technology | Purpose | Why |
 |---|---|---|
 | **TypeScript** | Language | Type safety with Zod runtime validation |
-| **Bun** | Runtime | Fast startup, native TypeScript, built-in test runner |
+| **Bun** | Runtime | Fast startup, native TypeScript, built-in tooling |
 | **Hono** | Web Framework | Lightweight, middleware-oriented, edge-ready |
 | **Vercel AI SDK** | LLM Abstraction | Multi-provider support, streaming, unified API |
 | **Redis Stack** | Semantic Cache | RediSearch for HNSW vector similarity search |
@@ -254,15 +254,9 @@ ai-gateway/
 │   ├── types/                   # Shared TypeScript types (Zod schemas)
 │   └── utils/
 │       └── token-bucket.ts      # Token bucket rate limiter
-├── tests/
-│   ├── health.test.ts           # Health endpoint tests
-│   ├── chat.test.ts             # Request validation tests
-│   ├── cost-tracker.test.ts     # Cost calculation unit tests
-│   └── error-tracker.test.ts    # Error recording unit tests
 ├── k8s/                         # Kubernetes manifests (GKE Autopilot)
 ├── docs/
-│   ├── API.md                   # Full API reference
-│   └── research/                # Architecture research & decisions
+│   └── API.md                   # Full API reference
 ├── Dockerfile                   # Multi-stage production build
 ├── docker-compose.yaml          # Local development (gateway + Redis)
 ├── biome.json                   # Biome linter/formatter config
@@ -309,24 +303,19 @@ kubectl apply -k k8s/
 
 Includes: Deployment with HPA (2-10 replicas), Redis StatefulSet with persistent storage, NetworkPolicies, health probes, and LoadBalancer ingress.
 
-> See the [K8s deployment research](./docs/research/k8s-deployment.md) for the full guide.
-
 ---
 
-## Testing
+## Verification
 
 ```bash
-# Run all tests
-bun test
+# Type check (strict mode, no emit)
+bun run typecheck
 
-# Run specific test file
-bun test tests/cost-tracker.test.ts
+# Lint + format check
+bun run lint
 
-# Type check
-bunx tsc --noEmit
-
-# Lint + format
-bunx biome check --write .
+# Lint + format with auto-fix
+bun run check
 ```
 
 ---

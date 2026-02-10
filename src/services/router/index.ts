@@ -2,6 +2,7 @@ import type { LanguageModel } from "ai";
 import { ROUTE_CONFIG, type RouteTarget } from "@/config/routes.ts";
 import { detectProvider, getModel, type ProviderName } from "@/services/providers/index.ts";
 
+/** The result of routing a model name to a concrete provider + model. */
 export interface ResolvedRoute {
 	model: LanguageModel;
 	provider: ProviderName;

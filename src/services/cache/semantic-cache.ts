@@ -3,7 +3,7 @@ import { logger } from "@/middleware/logging.ts";
 import { generateEmbedding, normalizeMessages } from "./embeddings.ts";
 import { getRedisClient } from "./redis.ts";
 
-/** Cached response structure stored in Redis as JSON */
+/** Shape of a cached response stored in Redis as a JSON document. */
 export interface CachedResponse {
 	query: string;
 	model: string;
@@ -17,7 +17,7 @@ export interface CachedResponse {
 	createdAt: number;
 }
 
-/** Result of a semantic cache lookup */
+/** Result of a semantic cache lookup (hit + optional response data). */
 export interface CacheSearchResult {
 	hit: boolean;
 	response?: string;
