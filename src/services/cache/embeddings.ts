@@ -5,6 +5,9 @@ import { logger } from "@/middleware/logging.ts";
 
 const EMBEDDING_TIMEOUT_MS = 10_000;
 
+/** Maximum characters for embedding input to avoid exceeding model context limits */
+const MAX_EMBEDDING_INPUT_CHARS = 32_000;
+
 let openaiClient: OpenAI | null = null;
 
 /**
@@ -66,5 +69,6 @@ export async function generateEmbedding(text: string): Promise<number[]> {
  * Concatenates role + content for each message.
  */
 export function normalizeMessages(messages: Array<{ role: string; content: string }>): string {
-	return messages.map((m) => `${m.role}: ${m.content}`).join("\n");
+	const concatenated = messages.map((m) => `${m.role}: ${m.content}`).join("\n");
+	return concatenated.slice(0, MAX_EMBEDDING_INPUT_CHARS);
 }

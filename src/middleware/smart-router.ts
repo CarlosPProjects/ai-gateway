@@ -1,7 +1,7 @@
 import { context, SpanStatusCode, trace } from "@opentelemetry/api";
 import type { MiddlewareHandler } from "hono";
 import { z } from "zod/v4";
-import type { ProviderName } from "@/config/providers.ts";
+import { PROVIDER_NAMES, type ProviderName } from "@/config/providers.ts";
 import { logger } from "@/middleware/logging.ts";
 import { modelSelector } from "@/routing/model-selector.ts";
 import { providerRegistry } from "@/routing/provider-registry.ts";
@@ -237,11 +237,30 @@ function parseRoutingHints(c: Parameters<MiddlewareHandler>[0]): RequestMetadata
 		return undefined;
 	}
 
+	// Validate preferProvider against known provider names
+	const validatedProvider =
+		preferProvider && (PROVIDER_NAMES as readonly string[]).includes(preferProvider)
+			? (preferProvider as ProviderName)
+			: undefined;
+
+	// Validate numeric headers: must parse to a finite positive number
+	const parsedLatency = maxLatency ? Number(maxLatency) : undefined;
+	const validatedLatency =
+		parsedLatency !== undefined && !Number.isNaN(parsedLatency) && parsedLatency > 0
+			? parsedLatency
+			: undefined;
+
+	const parsedCost = maxCost ? Number(maxCost) : undefined;
+	const validatedCost =
+		parsedCost !== undefined && !Number.isNaN(parsedCost) && parsedCost > 0
+			? parsedCost
+			: undefined;
+
 	return {
 		strategy: isValidStrategy(strategyHeader) ? strategyHeader : undefined,
-		preferProvider: preferProvider as ProviderName | undefined,
-		maxLatencyMs: maxLatency ? Number(maxLatency) : undefined,
-		maxCostPer1kTokens: maxCost ? Number(maxCost) : undefined,
+		preferProvider: validatedProvider,
+		maxLatencyMs: validatedLatency,
+		maxCostPer1kTokens: validatedCost,
 	};
 }
 
