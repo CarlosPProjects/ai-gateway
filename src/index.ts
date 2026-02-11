@@ -80,7 +80,6 @@ app.get("/", (c) => {
 	return c.json({
 		name: "ai-gateway",
 		version: packageJson.version,
-		endpoints: ["/v1/chat/completions", "/health", "/ready", "/metrics", "/metrics/costs"],
 	});
 });
 
@@ -92,7 +91,7 @@ app.notFound((c) => {
 				message: "Not Found",
 				type: "invalid_request_error",
 				code: "not_found",
-				path: c.req.path,
+				path: c.req.path.slice(0, 200),
 			},
 		},
 		404,

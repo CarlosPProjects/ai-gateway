@@ -77,10 +77,12 @@ export async function semanticSearch(
 		const queryText = normalizeMessages(messages);
 		const embedding = await generateEmbedding(queryText);
 
-		// KNN search scoped to the same model using a TAG filter
+		// KNN 5 search scoped to the same model using a TAG filter.
+		// We fetch top-5 so post-filtering by temperature/maxTokens can still find a match
+		// even when the closest vector has different generation parameters.
 		const results = (await client.ft.search(
 			cacheConfig.indexName,
-			`@model:{${escapeTag(model)}}=>[KNN 1 @vector $BLOB AS score]`,
+			`@model:{${escapeTag(model)}}=>[KNN 5 @vector $BLOB AS score]`,
 			{
 				PARAMS: { BLOB: float32Buffer(embedding) },
 				RETURN: ["score", "$.response", "$.usage", "$.model", "$.temperature", "$.maxTokens"],
@@ -89,14 +91,23 @@ export async function semanticSearch(
 		)) as unknown as SearchResult;
 
 		if (results.total > 0 && results.documents.length > 0) {
-			const doc = results.documents[0];
-			if (!doc) return { hit: false };
+			// Iterate through ALL candidates to find the first one that matches
+			// both the similarity threshold AND the temperature/maxTokens params.
+			for (const doc of results.documents) {
+				if (!doc) continue;
 
-			const score = Number(doc.value.score);
+				const score = Number(doc.value.score);
 
-			// Cosine DISTANCE: lower = more similar (0 = identical)
-			if (score < cacheConfig.similarityThreshold) {
-				// Post-retrieval check: reject hit if temperature or maxTokens differ
+				// Cosine DISTANCE: lower = more similar (0 = identical)
+				if (score >= cacheConfig.similarityThreshold) {
+					logger.debug(
+						{ score: score.toFixed(4), threshold: cacheConfig.similarityThreshold },
+						"Cache candidate above similarity threshold — skipping",
+					);
+					continue;
+				}
+
+				// Post-retrieval check: reject candidate if temperature or maxTokens differ
 				const cachedTemp =
 					doc.value["$.temperature"] != null ? Number(doc.value["$.temperature"]) : undefined;
 				const cachedMaxTokens =
@@ -111,9 +122,9 @@ export async function semanticSearch(
 							requestTemp: temperature,
 							requestMaxTokens: maxTokens,
 						},
-						"Cache miss — temperature/maxTokens mismatch",
+						"Cache candidate — temperature/maxTokens mismatch, trying next",
 					);
-					return { hit: false };
+					continue;
 				}
 
 				const response = doc.value["$.response"] as string;
@@ -132,8 +143,8 @@ export async function semanticSearch(
 			}
 
 			logger.debug(
-				{ score: score.toFixed(4), threshold: cacheConfig.similarityThreshold },
-				"Cache miss — above similarity threshold",
+				{ candidateCount: results.documents.length, threshold: cacheConfig.similarityThreshold },
+				"Cache miss — no candidate matched params within threshold",
 			);
 		}
 
