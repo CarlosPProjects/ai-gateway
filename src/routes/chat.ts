@@ -28,6 +28,16 @@ const COMPLETION_ID_SUFFIX_LENGTH = 24;
 // ── Shared Helpers ───────────────────────────────────────────
 
 /**
+ * Estimate token count from text using the heuristic of ~4 characters per token.
+ * This is a rough approximation commonly used when actual token counts are unavailable.
+ * @param text - The text to estimate tokens for
+ * @returns Estimated token count
+ */
+function estimateTokens(text: string): number {
+	return Math.ceil(text.length / 4);
+}
+
+/**
  * Validate token counts before recording cost.
  * @returns `true` if tokens are within reasonable bounds.
  */
@@ -187,6 +197,12 @@ chat.post(
 			const capturedCtx = context.active();
 
 			return streamSSE(c, async (sseStream) => {
+				sseStream.onAbort(() => {
+					logger.warn("Client disconnected — aborting upstream LLM stream");
+					abortController.abort();
+					clearTimeout(streamTimer);
+				});
+
 				await context.with(capturedCtx, async () => {
 					try {
 						const result = streamText({
@@ -205,8 +221,12 @@ chat.post(
 							},
 						});
 
+						// Accumulate streamed text for token estimation if usage is unavailable
+						let fullText = "";
+
 						// Stream text deltas as OpenAI-compatible SSE chunks
 						for await (const textPart of result.textStream) {
+							fullText += textPart;
 							const chunk: ChatCompletionChunk = {
 								id: completionId,
 								object: "chat.completion.chunk",
@@ -242,21 +262,45 @@ chat.post(
 						// Record cost after stream completes
 						try {
 							const usage = await result.usage;
-							if (usage) {
-								recordUsageAndCost(
-									usage.inputTokens ?? 0,
-									usage.outputTokens ?? 0,
-									route,
-									true,
-									llmSpan,
-									llmStart,
-								);
+							let inputTokens: number;
+							let outputTokens: number;
+							let estimated = false;
+
+							if (usage && ((usage.inputTokens ?? 0) > 0 || (usage.outputTokens ?? 0) > 0)) {
+								// Use actual usage data from provider
+								inputTokens = usage.inputTokens ?? 0;
+								outputTokens = usage.outputTokens ?? 0;
 							} else {
+								// Estimate tokens from accumulated text and input messages
+								outputTokens = estimateTokens(fullText);
+								const inputText = sdkMessages.map((m) => m.content).join("");
+								inputTokens = estimateTokens(inputText);
+								estimated = true;
+
 								logger.warn(
-									{ provider: route.provider, model: route.modelId, streaming: true },
-									"Provider did not return usage data — cost not recorded",
+									{
+										provider: route.provider,
+										model: route.modelId,
+										streaming: true,
+										estimated,
+										inputTokens,
+										outputTokens,
+									},
+									"Provider did not return usage data — using estimated tokens",
 								);
-								llmSpan.setAttributes({ latency_ms: Date.now() - llmStart });
+							}
+
+							recordUsageAndCost(inputTokens, outputTokens, route, true, llmSpan, llmStart);
+							if (estimated) {
+								logger.info({
+									type: "cost",
+									provider: route.provider,
+									model: route.modelId,
+									streaming: true,
+									estimated: true,
+									input_tokens: inputTokens,
+									output_tokens: outputTokens,
+								});
 							}
 						} catch (usageError) {
 							logger.warn(

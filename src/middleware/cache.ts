@@ -54,6 +54,8 @@ export function semanticCacheMiddleware(): MiddlewareHandler {
 			model: string;
 			messages: Array<{ role: string; content: string }>;
 			stream?: boolean;
+			temperature?: number;
+			max_tokens?: number;
 		};
 
 		try {
@@ -89,7 +91,12 @@ export function semanticCacheMiddleware(): MiddlewareHandler {
 		);
 
 		try {
-			const cacheResult = await semanticSearch(body.messages, body.model);
+			const cacheResult = await semanticSearch(
+				body.messages,
+				body.model,
+				body.temperature,
+				body.max_tokens,
+			);
 			const cacheLatencyMs = Date.now() - cacheStart;
 
 			if (cacheResult.hit && cacheResult.response) {
@@ -165,14 +172,19 @@ export function semanticCacheMiddleware(): MiddlewareHandler {
 				const responseText = responseData.choices?.[0]?.message?.content;
 				if (responseText) {
 					// Fire and forget — don't block the response
-					cacheResponse(body.messages, body.model, responseText, responseData.usage).catch(
-						(err) => {
-							logger.error(
-								{ err: err instanceof Error ? err.message : String(err) },
-								"Async cache store failed",
-							);
-						},
-					);
+					cacheResponse(
+						body.messages,
+						body.model,
+						responseText,
+						responseData.usage,
+						body.temperature,
+						body.max_tokens,
+					).catch((err) => {
+						logger.error(
+							{ err: err instanceof Error ? err.message : String(err) },
+							"Async cache store failed",
+						);
+					});
 				}
 			}
 		} catch (err) {
