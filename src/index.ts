@@ -100,10 +100,10 @@ app.notFound((c) => {
 
 const port = env.PORT;
 
-const server = Bun.serve({
+export default {
 	port,
 	fetch: app.fetch,
-});
+};
 
 // Initialize Redis and vector index (non-blocking — gateway starts even if Redis is down)
 if (cacheConfig.enabled) {
@@ -132,7 +132,6 @@ const SHUTDOWN_TIMEOUT_MS = 10_000;
 const shutdown = async (signal: string) => {
 	if (isShuttingDown) return;
 	isShuttingDown = true;
-	server.stop();
 
 	logger.info({ signal }, "Graceful shutdown initiated");
 

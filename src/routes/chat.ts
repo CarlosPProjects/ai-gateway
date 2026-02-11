@@ -159,10 +159,12 @@ chat.post(
 		const body = c.req.valid("json");
 		const { model, messages, stream, temperature, max_tokens, top_p, stop } = body;
 
-		// Use smart-router selection if available, otherwise fall back to static routing
+		// Use smart-router selection if the selected model matches the requested model,
+		// otherwise fall back to static routing. The smart router may select a different
+		// provider/model based on scoring, but we must respect the user's explicit choice.
 		const selectedProvider = c.get("selectedProvider") as RankedProvider | undefined;
 		let route: ResolvedRoute;
-		if (selectedProvider) {
+		if (selectedProvider && selectedProvider.modelId === model) {
 			route = {
 				model: getModel(selectedProvider.provider, selectedProvider.modelId),
 				provider: selectedProvider.provider,
