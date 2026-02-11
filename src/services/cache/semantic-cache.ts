@@ -15,6 +15,8 @@ export interface CachedResponse {
 	};
 	embedding: number[];
 	createdAt: number;
+	temperature?: number;
+	maxTokens?: number;
 }
 
 /** Result of a semantic cache lookup (hit + optional response data). */
@@ -49,11 +51,15 @@ function float32Buffer(arr: number[]): Buffer {
  *
  * @param messages - The chat messages to search for
  * @param model - The model identifier (cache is model-scoped)
+ * @param temperature - Optional temperature param (must match cached entry)
+ * @param maxTokens - Optional maxTokens param (must match cached entry)
  * @returns Cache hit result with response if found
  */
 export async function semanticSearch(
 	messages: Array<{ role: string; content: string }>,
 	model: string,
+	temperature?: number,
+	maxTokens?: number,
 ): Promise<CacheSearchResult> {
 	// Validate model name to prevent Redis injection
 	if (!validateModelName(model)) {
@@ -77,7 +83,7 @@ export async function semanticSearch(
 			`@model:{${escapeTag(model)}}=>[KNN 1 @vector $BLOB AS score]`,
 			{
 				PARAMS: { BLOB: float32Buffer(embedding) },
-				RETURN: ["score", "$.response", "$.usage", "$.model"],
+				RETURN: ["score", "$.response", "$.usage", "$.model", "$.temperature", "$.maxTokens"],
 				DIALECT: 2,
 			},
 		)) as unknown as SearchResult;
@@ -90,6 +96,26 @@ export async function semanticSearch(
 
 			// Cosine DISTANCE: lower = more similar (0 = identical)
 			if (score < cacheConfig.similarityThreshold) {
+				// Post-retrieval check: reject hit if temperature or maxTokens differ
+				const cachedTemp =
+					doc.value["$.temperature"] != null ? Number(doc.value["$.temperature"]) : undefined;
+				const cachedMaxTokens =
+					doc.value["$.maxTokens"] != null ? Number(doc.value["$.maxTokens"]) : undefined;
+
+				if (cachedTemp !== temperature || cachedMaxTokens !== maxTokens) {
+					logger.debug(
+						{
+							score: score.toFixed(4),
+							cachedTemp,
+							cachedMaxTokens,
+							requestTemp: temperature,
+							requestMaxTokens: maxTokens,
+						},
+						"Cache miss — temperature/maxTokens mismatch",
+					);
+					return { hit: false };
+				}
+
 				const response = doc.value["$.response"] as string;
 				const usageRaw = doc.value["$.usage"];
 				const usage = typeof usageRaw === "string" ? JSON.parse(usageRaw) : usageRaw;
@@ -128,12 +154,16 @@ export async function semanticSearch(
  * @param model - The model identifier
  * @param response - The LLM response text
  * @param usage - Token usage stats
+ * @param temperature - Optional temperature used for the request
+ * @param maxTokens - Optional maxTokens used for the request
  */
 export async function cacheResponse(
 	messages: Array<{ role: string; content: string }>,
 	model: string,
 	response: string,
 	usage: CachedResponse["usage"],
+	temperature?: number,
+	maxTokens?: number,
 ): Promise<void> {
 	// Validate model name to prevent Redis injection
 	if (!validateModelName(model)) {
@@ -158,6 +188,8 @@ export async function cacheResponse(
 			usage,
 			embedding,
 			createdAt: Date.now(),
+			...(temperature !== undefined && { temperature }),
+			...(maxTokens !== undefined && { maxTokens }),
 		};
 
 		// biome-ignore lint/suspicious/noExplicitAny: Redis JSON type is overly restrictive for nested objects
