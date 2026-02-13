@@ -28,6 +28,46 @@ export function calculatePercentile(samples: number[], percentile: number): numb
 }
 
 /**
+ * Calculate multiple percentiles from the same dataset with a single sort pass.
+ * Uses the nearest-rank method (identical to `calculatePercentile`).
+ *
+ * @param samples     Array of numeric values (need not be sorted)
+ * @param percentiles Array of percentile values to compute (each 0–100)
+ * @returns Map from percentile → value (empty map if samples is empty)
+ */
+export function calculatePercentiles(
+	samples: number[],
+	percentiles: number[],
+): Map<number, number> {
+	const result = new Map<number, number>();
+	if (samples.length === 0) {
+		for (const p of percentiles) result.set(p, 0);
+		return result;
+	}
+
+	for (const p of percentiles) {
+		if (p < 0 || p > 100) {
+			throw new RangeError(`percentile must be 0–100, got ${p}`);
+		}
+	}
+
+	const sorted = [...samples].sort((a, b) => a - b);
+
+	for (const p of percentiles) {
+		if (p === 0) {
+			result.set(p, sorted[0] as number);
+		} else if (p === 100) {
+			result.set(p, sorted[sorted.length - 1] as number);
+		} else {
+			const rank = Math.ceil((p / 100) * sorted.length) - 1;
+			result.set(p, sorted[Math.max(0, rank)] as number);
+		}
+	}
+
+	return result;
+}
+
+/**
  * Compute an exponential moving average (EMA) update.
  *
  * EMA_new = alpha * newValue + (1 - alpha) * currentEma
